@@ -33,6 +33,11 @@ public:
     /** Creates the impulse response of a built-in cabinet at the given sample rate. */
     static juce::AudioBuffer<float> makeBuiltInImpulse (int index, double sampleRate);
 
+    /** Scales an impulse response so that guitar-range frequencies (100 Hz to
+        2 kHz) pass at their original loudness on average. Switching the
+        cabinet on or off, or changing cabinets, then keeps a similar volume. */
+    static void matchLoudness (juce::AudioBuffer<float>& impulse, double sampleRate);
+
     void selectBuiltIn (int index);
 
     /** Loads an impulse response file. Returns an error message, or an empty

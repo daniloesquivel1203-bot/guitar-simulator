@@ -54,6 +54,28 @@ TEST_CASE ("every built-in cabinet removes fizz and rumble like a guitar speaker
     REQUIRE (responseAt (cabinet, 2500.0) > 0.5 * mids);
 }
 
+TEST_CASE ("switching a cabinet on keeps a similar loudness across the guitar range")
+{
+    const auto index = GENERATE (0, 1, 2);
+
+    Cabinet cabinet;
+    cabinet.selectBuiltIn (index);
+
+    // Average the response over the pitch range of a guitar.
+    double sumOfSquares = 0.0;
+    const std::vector<double> notes { 110.0, 165.0, 220.0, 330.0, 440.0, 660.0, 880.0, 1320.0, 1760.0 };
+
+    for (auto hz : notes)
+    {
+        const auto response = responseAt (cabinet, hz);
+        sumOfSquares += response * response;
+    }
+
+    const auto averageDb = juce::Decibels::gainToDecibels (std::sqrt (sumOfSquares / (double) notes.size()));
+    INFO ("average level change " << averageDb << " dB");
+    REQUIRE (std::abs (averageDb) < 3.0);
+}
+
 TEST_CASE ("the built-in cabinets differ from each other")
 {
     Cabinet a, b;
@@ -114,8 +136,10 @@ TEST_CASE ("an impulse response file can be loaded and is used")
     REQUIRE (cabinet.getCurrentName() == file.getFileNameWithoutExtension());
 
     // A flat response, unlike a speaker: treble passes as strongly as the mids.
+    // Loudness matching brings the quiet file back up to its original level.
     const auto mids = responseAt (cabinet, 1000.0);
-    REQUIRE (mids > 0.0);
+    REQUIRE (mids > 0.9);
+    REQUIRE (mids < 1.1);
     REQUIRE (responseAt (cabinet, 6000.0) > 0.8 * mids);
 
     // The choice survives being saved and restored.

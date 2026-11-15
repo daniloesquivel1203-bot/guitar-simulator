@@ -101,15 +101,49 @@ juce::AudioBuffer<float> Cabinet::makeBuiltInImpulse (int index, double rate)
     return impulse;
 }
 
+void Cabinet::matchLoudness (juce::AudioBuffer<float>& impulse, double rate)
+{
+    constexpr int numPoints = 32;
+    constexpr double lowHz = 100.0, highHz = 2000.0;
+
+    const auto* data = impulse.getReadPointer (0);
+    const auto length = impulse.getNumSamples();
+    double sumOfSquares = 0.0;
+
+    // Measure the response at points spread evenly across the pitch range.
+    for (int point = 0; point < numPoints; ++point)
+    {
+        const auto hz = lowHz * std::pow (highHz / lowHz, (double) point / (numPoints - 1));
+        const auto step = juce::MathConstants<double>::twoPi * hz / rate;
+        double re = 0.0, im = 0.0;
+
+        for (int i = 0; i < length; ++i)
+        {
+            re += data[i] * std::cos (step * i);
+            im -= data[i] * std::sin (step * i);
+        }
+
+        sumOfSquares += re * re + im * im;
+    }
+
+    const auto average = std::sqrt (sumOfSquares / numPoints);
+
+    if (average > 1.0e-9)
+        impulse.applyGain ((float) (1.0 / average));
+}
+
 void Cabinet::selectBuiltIn (int index)
 {
     builtInIndex = juce::jlimit (0, numBuiltIns - 1, index);
     loadedFile = juce::File();
 
-    convolution.loadImpulseResponse (makeBuiltInImpulse (builtInIndex, builtInSampleRate), builtInSampleRate,
+    auto impulse = makeBuiltInImpulse (builtInIndex, builtInSampleRate);
+    matchLoudness (impulse, builtInSampleRate);
+
+    convolution.loadImpulseResponse (std::move (impulse), builtInSampleRate,
                                      juce::dsp::Convolution::Stereo::no,
                                      juce::dsp::Convolution::Trim::no,
-                                     juce::dsp::Convolution::Normalise::yes);
+                                     juce::dsp::Convolution::Normalise::no);
 }
 
 juce::String Cabinet::loadFile (const juce::File& file)
@@ -127,13 +161,26 @@ juce::String Cabinet::loadFile (const juce::File& file)
 
     // Cabinet responses are short. Cap the length so a long file cannot overload the CPU.
     const auto maxSamples = (juce::int64) (maxImpulseSeconds * reader->sampleRate);
-    const auto samplesToUse = (size_t) juce::jmin (reader->lengthInSamples, maxSamples);
+    const auto numSamples = (int) juce::jmin (reader->lengthInSamples, maxSamples);
 
-    convolution.loadImpulseResponse (file,
+    juce::AudioBuffer<float> fileData (juce::jmax (1, (int) reader->numChannels), numSamples);
+
+    if (! reader->read (&fileData, 0, numSamples, 0, true, true))
+        return "\"" + file.getFileName() + "\" could not be read.";
+
+    // Use the first channel. Stereo cabinet files normally hold two microphones, and one is enough.
+    juce::AudioBuffer<float> impulse (1, numSamples);
+    impulse.copyFrom (0, 0, fileData, 0, 0, numSamples);
+
+    if (impulse.getMagnitude (0, numSamples) <= 0.0f)
+        return "\"" + file.getFileName() + "\" is silent, so it cannot be used as a cabinet.";
+
+    matchLoudness (impulse, reader->sampleRate);
+
+    convolution.loadImpulseResponse (std::move (impulse), reader->sampleRate,
                                      juce::dsp::Convolution::Stereo::no,
                                      juce::dsp::Convolution::Trim::yes,
-                                     samplesToUse,
-                                     juce::dsp::Convolution::Normalise::yes);
+                                     juce::dsp::Convolution::Normalise::no);
 
     loadedFile = file;
     builtInIndex = -1;
