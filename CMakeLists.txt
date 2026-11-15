@@ -17,6 +17,7 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_gui_app(GuitarSimulator
     PRODUCT_NAME "Guitar Simulator"
     COMPANY_NAME "Guitar Simulator"
+    BUNDLE_ID "com.guitarsimulator.app"
     MICROPHONE_PERMISSION_ENABLED TRUE
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE)
