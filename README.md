@@ -3,10 +3,10 @@
 A standalone virtual guitar amp and pedalboard. Plug a guitar into any audio
 interface, and the app processes it live and sends it to your headphones.
 
-Status: milestone 3 of 6, amp and cabinet. The app takes the guitar from one
-input channel and runs it through an amp with three voicings (clean, crunch
-and lead), a speaker cabinet and a safety limiter, and plays it in both ears.
-Pedals arrive in the next milestone.
+Status: milestone 4 of 6, pedals. The full signal chain is in place: noise
+gate, compressor, overdrive, distortion, an amp with three voicings, a speaker
+cabinet, EQ, and stereo chorus, delay and reverb, with a safety limiter on the
+output. Presets and the tuner arrive in the next milestone.
 
 ## First run
 
@@ -22,8 +22,10 @@ Pedals arrive in the next milestone.
 4. Play. The input meter should move, and the red light above it means the
    interface input is clipping, so turn its gain knob down.
 
-5. Pick an amp voicing and turn the knobs. Choose a cabinet, or load your own
-   impulse response file (WAV or AIFF) for a more realistic speaker sound.
+5. The row of tiles is the signal chain, left to right. Click a tile to show
+   its controls, and click the light on a tile to switch it on or off.
+6. On the Cab tile, choose a cabinet or load your own impulse response file
+   (WAV or AIFF) for a more realistic speaker sound.
 
 Settings are remembered between launches. If the interface is unplugged, the
 app waits and reconnects when it returns.

@@ -19,18 +19,50 @@ void raisePeak (std::atomic<float>& peak, float candidate) noexcept
 void SignalChain::prepare (double sampleRate, int maxBlockSize)
 {
     scratch.assign ((size_t) juce::jmax (16, maxBlockSize), 0.0f);
+    scratchRight.assign (scratch.size(), 0.0f);
 
     inputGain.reset (sampleRate, gainSmoothingSeconds);
     outputGain.reset (sampleRate, gainSmoothingSeconds);
 
-    amp.prepare (sampleRate, (int) scratch.size());
-    cabinet.prepare (sampleRate, (int) scratch.size());
+    const auto blockSize = (int) scratch.size();
+
+    for (auto* effect : getPreEffects())        effect->prepare (sampleRate, blockSize);
+    for (auto* effect : getPostMonoEffects())   effect->prepare (sampleRate, blockSize);
+    for (auto* effect : getStereoEffects())     effect->prepare (sampleRate, blockSize);
+
+    amp.prepare (sampleRate, blockSize);
+    cabinet.prepare (sampleRate, blockSize);
     limiter.prepare (sampleRate);
     reset();
 }
 
+std::vector<Parameter*> SignalChain::getAllParameters()
+{
+    std::vector<Parameter*> all;
+
+    const auto addEffect = [&all] (Effect& effect)
+    {
+        all.push_back (&effect.enabled);
+
+        for (auto* control : effect.getControls())
+            all.push_back (control);
+    };
+
+    for (auto* effect : getPreEffects())        addEffect (*effect);
+    for (auto* parameter : amp.getParameters()) all.push_back (parameter);
+    for (auto* parameter : cabinet.getParameters()) all.push_back (parameter);
+    for (auto* effect : getPostMonoEffects())   addEffect (*effect);
+    for (auto* effect : getStereoEffects())     addEffect (*effect);
+
+    return all;
+}
+
 void SignalChain::reset()
 {
+    for (auto* effect : getPreEffects())        effect->reset();
+    for (auto* effect : getPostMonoEffects())   effect->reset();
+    for (auto* effect : getStereoEffects())     effect->reset();
+
     amp.reset();
     cabinet.reset();
     limiter.reset();
@@ -82,17 +114,43 @@ void SignalChain::processChunk (const float* input, float* left, float* right, i
         blockInputPeak = juce::jmax (blockInputPeak, std::abs (mono[i]));
     }
 
+    noiseGate.process (mono, numSamples);
+    compressor.process (mono, numSamples);
+    overdrive.process (mono, numSamples);
+    distortion.process (mono, numSamples);
     amp.process (mono, numSamples);
     cabinet.process (mono, numSamples);
+    equaliser.process (mono, numSamples);
+
+    // From here on the signal is stereo.
+    auto* monoRight = scratchRight.data();
+    std::copy (mono, mono + numSamples, monoRight);
+
+    chorus.process (mono, monoRight, numSamples);
+    delay.process (mono, monoRight, numSamples);
+    reverb.process (mono, monoRight, numSamples);
+
+    const bool monoOutput = left == right;
 
     for (int i = 0; i < numSamples; ++i)
     {
-        // The limiter is last so nothing upstream can push the output past its ceiling.
-        const float out = limiter.processSample (mono[i] * outputGain.getNextValue());
-        blockOutputPeak = juce::jmax (blockOutputPeak, std::abs (out));
+        const auto gain = outputGain.getNextValue();
+        auto outLeft = mono[i] * gain;
+        auto outRight = monoRight[i] * gain;
 
-        left[i] = out;
-        right[i] = out;
+        // The limiter is last so nothing upstream can push the output past its ceiling.
+        limiter.processStereo (outLeft, outRight);
+        blockOutputPeak = juce::jmax (blockOutputPeak, std::abs (outLeft), std::abs (outRight));
+
+        if (monoOutput)
+        {
+            left[i] = 0.5f * (outLeft + outRight);
+        }
+        else
+        {
+            left[i] = outLeft;
+            right[i] = outRight;
+        }
     }
 
     raisePeak (inputPeak, blockInputPeak);

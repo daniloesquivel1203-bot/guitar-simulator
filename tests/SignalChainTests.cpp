@@ -169,3 +169,51 @@ TEST_CASE ("gain setters clamp to their documented ranges")
     chain.setOutputGainDb (-200.0f);
     REQUIRE_THAT (chain.getOutputGainDb(), WithinAbs (SignalChain::minOutputGainDb, 0.0));
 }
+
+TEST_CASE ("with every block on at full settings the output is finite and under the limiter ceiling")
+{
+    SignalChain chain;
+
+    for (auto* parameter : chain.getAllParameters())
+        parameter->set (parameter->maxValue);
+
+    chain.setInputGainDb (24.0f);
+    chain.setOutputGainDb (6.0f);
+    chain.prepare (sampleRate, blockSize);
+
+    std::vector<float> input ((size_t) blockSize), left ((size_t) blockSize), right ((size_t) blockSize);
+    bool sidesDiffer = false;
+
+    for (int block = 0; block < 1500; ++block)   // four seconds
+    {
+        for (int i = 0; i < blockSize; ++i)
+            input[(size_t) i] = 0.9f * (float) std::sin (juce::MathConstants<double>::twoPi * 196.0
+                                                         * (block * blockSize + i) / sampleRate);
+
+        chain.process (input.data(), left.data(), right.data(), blockSize);
+
+        for (int i = 0; i < blockSize; ++i)
+        {
+            REQUIRE (std::isfinite (left[(size_t) i]));
+            REQUIRE (std::isfinite (right[(size_t) i]));
+            REQUIRE (std::abs (left[(size_t) i]) <= SafetyLimiter::ceiling + 1.0e-5f);
+            REQUIRE (std::abs (right[(size_t) i]) <= SafetyLimiter::ceiling + 1.0e-5f);
+            sidesDiffer = sidesDiffer || std::abs (left[(size_t) i] - right[(size_t) i]) > 1.0e-4f;
+        }
+    }
+
+    // Chorus and ping-pong delay make the two ears differ.
+    REQUIRE (sidesDiffer);
+}
+
+TEST_CASE ("the chain lists every parameter exactly once")
+{
+    SignalChain chain;
+    const auto parameters = chain.getAllParameters();
+
+    REQUIRE (parameters.size() == 46);
+
+    for (size_t a = 0; a < parameters.size(); ++a)
+        for (size_t b = a + 1; b < parameters.size(); ++b)
+            REQUIRE (juce::String (parameters[a]->id) != juce::String (parameters[b]->id));
+}

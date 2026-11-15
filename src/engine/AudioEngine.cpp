@@ -52,10 +52,7 @@ AudioEngine::~AudioEngine()
 
 void AudioEngine::loadToneSettings()
 {
-    for (auto* parameter : chain.getAmp().getParameters())
-        parameter->set ((float) settings.getDoubleValue (parameter->id, parameter->defaultValue));
-
-    for (auto* parameter : chain.getCabinet().getParameters())
+    for (auto* parameter : chain.getAllParameters())
         parameter->set ((float) settings.getDoubleValue (parameter->id, parameter->defaultValue));
 
     chain.getCabinet().restoreFromDescription (settings.getValue (cabinetSourceKey));
@@ -64,10 +61,7 @@ void AudioEngine::loadToneSettings()
 void AudioEngine::saveToneSettings()
 {
     // setValue only marks the file as changed when a value really differs.
-    for (auto* parameter : chain.getAmp().getParameters())
-        settings.setValue (parameter->id, (double) parameter->get());
-
-    for (auto* parameter : chain.getCabinet().getParameters())
+    for (auto* parameter : chain.getAllParameters())
         settings.setValue (parameter->id, (double) parameter->get());
 
     settings.setValue (cabinetSourceKey, chain.getCabinet().getSourceDescription());

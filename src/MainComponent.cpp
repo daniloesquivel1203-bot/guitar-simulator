@@ -15,12 +15,10 @@ const juce::Colour warning { 0xfff5a524 };
 }
 
 MainComponent::MainComponent (AudioEngine& engineToUse)
-    : engine (engineToUse),
-      ampPanel (engine.getChain().getAmp()),
-      cabinetPanel (engine.getChain().getCabinet())
+    : engine (engineToUse)
 {
-    addAndMakeVisible (ampPanel);
-    addAndMakeVisible (cabinetPanel);
+    addAndMakeVisible (chainStrip);
+    buildChain();
 
     title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
     addAndMakeVisible (title);
@@ -67,7 +65,7 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     refreshStatus();
     startTimerHz (meterRefreshHz);
 
-    setSize (960, 560);
+    setSize (1040, 520);
 }
 
 MainComponent::~MainComponent()
@@ -132,9 +130,64 @@ void MainComponent::resized()
     layoutStrip (area.removeFromRight (stripWidth), outputHeading, outputMeter, outputGain, &muteButton);
 
     area = area.reduced (16);
-    cabinetPanel.setBounds (area.removeFromBottom (area.getHeight() * 2 / 5));
-    area.removeFromBottom (16);
-    ampPanel.setBounds (area);
+    chainStrip.setBounds (area.removeFromTop (64));
+    area.removeFromTop (16);
+
+    if (detailPanel != nullptr)
+        detailPanel->setBounds (area);
+}
+
+void MainComponent::buildChain()
+{
+    auto& chain = engine.getChain();
+
+    const auto addEffect = [this] (const char* shortName, Effect& effect)
+    {
+        chainBlocks.push_back ({ shortName, &effect.enabled,
+                                 [&effect] { return std::make_unique<EffectPanel> (effect); } });
+    };
+
+    addEffect ("Gate", chain.getNoiseGate());
+    addEffect ("Comp", chain.getCompressor());
+    addEffect ("Drive", chain.getOverdrive());
+    addEffect ("Dist", chain.getDistortion());
+
+    chainBlocks.push_back ({ "Amp", &chain.getAmp().enabled,
+                             [&chain] { return std::make_unique<AmpPanel> (chain.getAmp()); } });
+    chainBlocks.push_back ({ "Cab", &chain.getCabinet().enabled,
+                             [&chain] { return std::make_unique<CabinetPanel> (chain.getCabinet()); } });
+
+    addEffect ("EQ", chain.getEqualiser());
+    addEffect ("Chorus", chain.getChorus());
+    addEffect ("Delay", chain.getDelay());
+    addEffect ("Reverb", chain.getReverb());
+
+    std::vector<ChainStrip::Block> tiles;
+
+    for (const auto& block : chainBlocks)
+        tiles.push_back ({ block.shortName, block.enabled });
+
+    chainStrip.setBlocks (std::move (tiles));
+    chainStrip.onSelect = [this] (int index) { selectBlock (index); };
+    chainStrip.onToggle = [this] (int index)
+    {
+        if (index == chainStrip.getSelected() && detailPanel != nullptr)
+            detailPanel->refreshPower();
+    };
+
+    // Start on the amp, which is where most of the tone is set.
+    selectBlock (4);
+}
+
+void MainComponent::selectBlock (int index)
+{
+    if (! juce::isPositiveAndBelow (index, (int) chainBlocks.size()))
+        return;
+
+    chainStrip.setSelected (index);
+    detailPanel = chainBlocks[(size_t) index].makePanel();
+    addAndMakeVisible (*detailPanel);
+    resized();
 }
 
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -147,6 +200,9 @@ void MainComponent::timerCallback()
     auto& chain = engine.getChain();
     inputMeter.update (chain.readInputPeak(), chain.readInputClipped());
     outputMeter.update (chain.readOutputPeak(), false);
+
+    // Keeps the tile lights in step with switches changed in the panel below.
+    chainStrip.repaint();
 
     // The CPU and dropout figures change continuously, so refresh them a few times a second.
     if (++ticksSinceStatusRefresh >= meterRefreshHz / 3)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/AudioEngine.h"
+#include "ui/ChainStrip.h"
 #include "ui/LevelMeter.h"
 #include "ui/TonePanels.h"
 
@@ -43,8 +44,20 @@ private:
     juce::Slider outputGain;
     juce::ToggleButton muteButton { "Mute" };
 
-    AmpPanel ampPanel;
-    CabinetPanel cabinetPanel;
+    /** One entry per tile in the chain strip, in signal order. */
+    struct ChainBlock
+    {
+        juce::String shortName;
+        Parameter* enabled;
+        std::function<std::unique_ptr<TonePanel>()> makePanel;
+    };
+
+    void buildChain();
+    void selectBlock (int index);
+
+    std::vector<ChainBlock> chainBlocks;
+    ChainStrip chainStrip;
+    std::unique_ptr<TonePanel> detailPanel;
 
     int ticksSinceStatusRefresh = 0;
 

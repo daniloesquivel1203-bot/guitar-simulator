@@ -34,6 +34,22 @@ public:
         return envelope > ceiling ? sample * (ceiling / envelope) : sample;
     }
 
+    /** Limits a stereo pair with one shared gain, so the image does not shift. */
+    void processStereo (float& left, float& right) noexcept
+    {
+        if (! std::isfinite (left))   left = 0.0f;
+        if (! std::isfinite (right))  right = 0.0f;
+
+        envelope = juce::jmax (std::abs (left), std::abs (right), envelope * releaseCoefficient);
+
+        if (envelope > ceiling)
+        {
+            const auto gain = ceiling / envelope;
+            left *= gain;
+            right *= gain;
+        }
+    }
+
 private:
     static constexpr double releaseSeconds = 0.08;
 

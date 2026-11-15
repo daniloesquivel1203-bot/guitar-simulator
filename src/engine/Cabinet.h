@@ -21,8 +21,8 @@ class Cabinet
 {
 public:
     Parameter enabled { "cab.enabled", "On",       0.0f,    1.0f,     1.0f,    1.0f };
-    Parameter lowCut  { "cab.lowCut",  "Low cut",  20.0f,   300.0f,   60.0f,   1.0f,   " Hz" };
-    Parameter highCut { "cab.highCut", "High cut", 2000.0f, 16000.0f, 8000.0f, 100.0f, " Hz" };
+    Parameter lowCut  { "cab.lowCut",  "Low cut",  20.0f,   300.0f,   60.0f,   1.0f,   " Hz", true };
+    Parameter highCut { "cab.highCut", "High cut", 2000.0f, 16000.0f, 8000.0f, 100.0f, " Hz", true };
 
     std::array<Parameter*, 3> getParameters() noexcept   { return { &enabled, &lowCut, &highCut }; }
 

@@ -8,7 +8,7 @@
 class ParameterKnob final : public juce::Component
 {
 public:
-    explicit ParameterKnob (Parameter& parameterToUse, bool logarithmic = false)
+    explicit ParameterKnob (Parameter& parameterToUse)
         : parameter (parameterToUse)
     {
         slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -17,7 +17,7 @@ public:
         slider.setTextValueSuffix (parameter.unit);
         slider.setDoubleClickReturnValue (true, parameter.defaultValue);
 
-        if (logarithmic)
+        if (parameter.logarithmic)
             slider.setSkewFactorFromMidPoint (std::sqrt ((double) parameter.minValue * parameter.maxValue));
 
         slider.setValue (parameter.get(), juce::dontSendNotification);
@@ -51,9 +51,12 @@ public:
     explicit ParameterToggle (Parameter& parameterToUse)
         : juce::ToggleButton (parameterToUse.name), parameter (parameterToUse)
     {
-        setToggleState (parameter.isOn(), juce::dontSendNotification);
+        refresh();
         onClick = [this] { parameter.set (getToggleState() ? 1.0f : 0.0f); };
     }
+
+    /** Call when the parameter may have been changed from somewhere else. */
+    void refresh()   { setToggleState (parameter.isOn(), juce::dontSendNotification); }
 
 private:
     Parameter& parameter;

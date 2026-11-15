@@ -30,6 +30,9 @@ target_sources(GuitarSimulator
         src/engine/AudioEngine.cpp
         src/engine/Cabinet.cpp
         src/engine/SignalChain.cpp
+        src/engine/effects/Drives.cpp
+        src/engine/effects/Dynamics.cpp
+        src/engine/effects/TimeEffects.cpp
         src/ui/AudioSettingsPanel.cpp
         src/ui/TonePanels.cpp)
 
@@ -76,8 +79,12 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/AmpModel.cpp
             src/engine/Cabinet.cpp
             src/engine/SignalChain.cpp
+            src/engine/effects/Drives.cpp
+            src/engine/effects/Dynamics.cpp
+            src/engine/effects/TimeEffects.cpp
             tests/AmpModelTests.cpp
             tests/CabinetTests.cpp
+            tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
             tests/SafetyLimiterTests.cpp
             tests/SignalChainTests.cpp

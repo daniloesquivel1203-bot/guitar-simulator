@@ -13,9 +13,11 @@ class Parameter
 {
 public:
     Parameter (const char* idToUse, const char* nameToUse, float minToUse, float maxToUse,
-               float defaultToUse, float stepToUse = 0.1f, const char* unitToUse = "")
+               float defaultToUse, float stepToUse = 0.1f, const char* unitToUse = "",
+               bool logarithmicToUse = false)
         : id (idToUse), name (nameToUse), unit (unitToUse),
           minValue (minToUse), maxValue (maxToUse), defaultValue (defaultToUse), step (stepToUse),
+          logarithmic (logarithmicToUse),
           value (defaultToUse)
     {
     }
@@ -29,6 +31,14 @@ public:
     const char* const name;
     const char* const unit;
     const float minValue, maxValue, defaultValue, step;
+
+    /** True for values such as frequencies and times that a knob should spread
+        evenly by ratio instead of by difference. */
+    const bool logarithmic;
+
+    /** A switch is a parameter with only the values 0 and 1. */
+    bool isSwitch() const noexcept   { return juce::exactlyEqual (minValue, 0.0f) && juce::exactlyEqual (maxValue, 1.0f)
+                                              && juce::exactlyEqual (step, 1.0f); }
 
 private:
     std::atomic<float> value;

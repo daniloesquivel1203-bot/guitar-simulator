@@ -2,6 +2,7 @@
 
 #include "../engine/AmpModel.h"
 #include "../engine/Cabinet.h"
+#include "../engine/effects/Effect.h"
 #include "ParameterControls.h"
 
 /** A titled, rounded box that the amp and cabinet controls sit in. */
@@ -11,6 +12,9 @@ public:
     explicit TonePanel (const juce::String& titleToUse) : title (titleToUse) {}
 
     void paint (juce::Graphics&) override;
+
+    /** Updates the on/off switch after it was changed from the chain strip. */
+    virtual void refreshPower() = 0;
 
 protected:
     /** The area below the title row. */
@@ -26,6 +30,7 @@ class AmpPanel final : public TonePanel
 public:
     explicit AmpPanel (AmpModel&);
     void resized() override;
+    void refreshPower() override   { power.refresh(); }
 
 private:
     AmpModel& amp;
@@ -39,6 +44,7 @@ class CabinetPanel final : public TonePanel
 public:
     explicit CabinetPanel (Cabinet&);
     void resized() override;
+    void refreshPower() override   { power.refresh(); }
 
 private:
     enum ItemIds { firstBuiltInId = 1, loadedFileId = 100, loadFileId = 200 };
@@ -53,4 +59,18 @@ private:
     ParameterKnob lowCut, highCut;
     juce::Label message;
     std::unique_ptr<juce::FileChooser> fileChooser;
+};
+
+/** Controls for any pedal, built from the pedal's own list of parameters. */
+class EffectPanel final : public TonePanel
+{
+public:
+    explicit EffectPanel (Effect&);
+    void resized() override;
+    void refreshPower() override   { power.refresh(); }
+
+private:
+    ParameterToggle power;
+    juce::OwnedArray<ParameterKnob> knobs;
+    juce::OwnedArray<ParameterToggle> switches;
 };

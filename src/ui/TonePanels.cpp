@@ -54,7 +54,7 @@ CabinetPanel::CabinetPanel (Cabinet& cabinetToUse)
     : TonePanel ("CABINET"),
       cabinet (cabinetToUse),
       power (cabinet.enabled),
-      lowCut (cabinet.lowCut, true), highCut (cabinet.highCut, true)
+      lowCut (cabinet.lowCut), highCut (cabinet.highCut)
 {
     choice.onChange = [this] { choiceChanged(); };
     refreshChoices();
@@ -153,4 +153,40 @@ void CabinetPanel::chooseFile()
 
                                   refreshChoices();
                               });
+}
+
+//==============================================================================
+EffectPanel::EffectPanel (Effect& effect)
+    : TonePanel (juce::String (effect.name).toUpperCase()),
+      power (effect.enabled)
+{
+    addAndMakeVisible (power);
+
+    for (auto* control : effect.getControls())
+    {
+        if (control->isSwitch())
+            addAndMakeVisible (switches.add (new ParameterToggle (*control)));
+        else
+            addAndMakeVisible (knobs.add (new ParameterKnob (*control)));
+    }
+}
+
+void EffectPanel::resized()
+{
+    auto header = getHeaderArea();
+    power.setBounds (header.removeFromRight (60));
+
+    auto area = getContentArea();
+
+    for (auto* knob : knobs)
+    {
+        knob->setBounds (area.removeFromLeft (knobWidth));
+        area.removeFromLeft (20);
+    }
+
+    for (auto* toggle : switches)
+    {
+        toggle->setBounds (area.removeFromLeft (120).withSizeKeepingCentre (120, 26));
+        area.removeFromLeft (12);
+    }
 }
