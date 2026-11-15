@@ -163,13 +163,14 @@ void MainComponent::refreshStatus()
         return;
     }
 
-    const auto inputs = engine.getActiveInputChannelNames();
-    const auto channel = juce::jlimit (0, juce::jmax (0, inputs.size() - 1), engine.getInputChannel());
+    const auto inputs = engine.getInputChannelNames();
+    const auto channel = engine.getInputChannel();
+    const bool inputOk = engine.isInputChannelAvailable();
 
-    statusLine.setColour (juce::Label::textColourId, good);
-    statusLine.setText (status.deviceName + " (" + status.deviceType + ")"
-                            + (inputs.isEmpty() ? juce::String ("  |  no input channel enabled")
-                                                : "  |  guitar on input " + juce::String (channel + 1)),
+    statusLine.setColour (juce::Label::textColourId, inputOk ? good : warning);
+    statusLine.setText (status.deviceName + " (" + status.deviceType + ")  |  "
+                            + (inputOk ? "guitar on input " + juce::String (channel + 1) + ": " + inputs[channel]
+                                       : juce::String ("no guitar input selected. Open Audio settings.")),
                         juce::dontSendNotification);
 
     detailLine.setText (juce::String (status.sampleRate / 1000.0, 1) + " kHz  |  buffer "

@@ -9,7 +9,8 @@ AudioSettingsPanel::AudioSettingsPanel (AudioEngine& engineToUse)
     guitarInputLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (guitarInputLabel);
 
-    guitarInput.setTextWhenNoChoicesAvailable ("No active input channels");
+    guitarInput.setTextWhenNoChoicesAvailable ("This device has no inputs");
+    guitarInput.setTextWhenNothingSelected ("Choose an input");
     guitarInput.onChange = [this]
     {
         if (guitarInput.getSelectedItemIndex() >= 0)
@@ -17,7 +18,7 @@ AudioSettingsPanel::AudioSettingsPanel (AudioEngine& engineToUse)
     };
     addAndMakeVisible (guitarInput);
 
-    hint.setText ("Pick the channel your guitar is plugged into. It is sent to both ears.\n"
+    hint.setText ("Pick the input your guitar is plugged into and watch the input meter. It is sent to both ears.\n"
                   "Turn off Direct Monitor on your interface, or you will hear the dry guitar on top.\n"
                   "A smaller buffer size means less delay. Raise it if you hear crackles.",
                   juce::dontSendNotification);
@@ -59,14 +60,14 @@ void AudioSettingsPanel::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void AudioSettingsPanel::refreshInputChoices()
 {
-    const auto names = engine.getActiveInputChannelNames();
+    const auto names = engine.getInputChannelNames();
 
     guitarInput.clear (juce::dontSendNotification);
 
     for (int i = 0; i < names.size(); ++i)
         guitarInput.addItem (juce::String (i + 1) + ": " + names[i], i + 1);
 
-    if (! names.isEmpty())
-        guitarInput.setSelectedItemIndex (juce::jlimit (0, names.size() - 1, engine.getInputChannel()),
-                                          juce::dontSendNotification);
+    // Leave the box empty when the saved channel does not exist on this device.
+    if (engine.getInputChannel() < names.size())
+        guitarInput.setSelectedItemIndex (engine.getInputChannel(), juce::dontSendNotification);
 }

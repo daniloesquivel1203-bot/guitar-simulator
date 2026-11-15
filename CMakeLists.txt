@@ -70,6 +70,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
     target_sources(GuitarSimulatorTests
         PRIVATE
             src/engine/SignalChain.cpp
+            tests/InputRoutingTests.cpp
             tests/SignalChainTests.cpp)
 
     target_include_directories(GuitarSimulatorTests PRIVATE src)

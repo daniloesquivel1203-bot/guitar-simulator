@@ -1,5 +1,7 @@
 #include "AudioEngine.h"
 
+#include "InputRouting.h"
+
 namespace
 {
 const juce::Identifier deviceStateKey { "audioDeviceState" };
@@ -27,6 +29,7 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settingsToUse)
         preferAsioOnFirstRun();
 
     rememberWorkingDevice();
+    updateInputRouting();
 
     deviceManager.addAudioCallback (this);
     deviceManager.addChangeListener (this);
@@ -91,28 +94,48 @@ AudioEngine::Status AudioEngine::getStatus() const
     return status;
 }
 
-juce::StringArray AudioEngine::getActiveInputChannelNames() const
+juce::StringArray AudioEngine::getInputChannelNames() const
 {
-    juce::StringArray names;
-
     if (auto* device = deviceManager.getCurrentAudioDevice())
-    {
-        const auto allNames = device->getInputChannelNames();
-        const auto active = device->getActiveInputChannels();
+        return device->getInputChannelNames();
 
-        for (int i = 0; i < allNames.size(); ++i)
-            if (active[i])
-                names.add (allNames[i]);
-    }
-
-    return names;
+    return {};
 }
 
-void AudioEngine::setInputChannel (int index)
+void AudioEngine::setInputChannel (int deviceChannelIndex)
 {
-    inputChannel.store (juce::jmax (0, index));
+    inputChannel.store (juce::jmax (0, deviceChannelIndex));
     settings.setValue (inputChannelKey, inputChannel.load());
+
+    // Switch the channel on if the device has it but it is not enabled yet.
+    if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        const auto channel = inputChannel.load();
+
+        if (channel < device->getInputChannelNames().size() && ! device->getActiveInputChannels()[channel])
+        {
+            auto setup = deviceManager.getAudioDeviceSetup();
+            setup.useDefaultInputChannels = false;
+            setup.inputChannels = device->getActiveInputChannels();
+            setup.inputChannels.setBit (channel);
+            deviceManager.setAudioDeviceSetup (setup, true);
+        }
+    }
+
+    updateInputRouting();
     sendChangeMessage();
+}
+
+void AudioEngine::updateInputRouting()
+{
+    int bufferIndex = -1;
+
+    if (auto* device = deviceManager.getCurrentAudioDevice())
+        bufferIndex = findInputBufferIndex (device->getActiveInputChannels(),
+                                            device->getInputChannelNames().size(),
+                                            inputChannel.load());
+
+    inputBufferIndex.store (bufferIndex);
 }
 
 void AudioEngine::setInputGainDb (float db)
@@ -138,8 +161,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
     if (numOutputChannels <= 0)
         return;
 
-    const float* guitar = numInputChannels > 0
-                              ? inputChannelData[juce::jlimit (0, numInputChannels - 1, inputChannel.load())]
+    // An unavailable channel gives silence instead of quietly using a different input.
+    const auto bufferIndex = inputBufferIndex.load();
+    const float* guitar = juce::isPositiveAndBelow (bufferIndex, numInputChannels)
+                              ? inputChannelData[bufferIndex]
                               : nullptr;
 
     // The mono guitar signal goes to the first two outputs so it is heard in both ears.
@@ -156,6 +181,11 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
     chain.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
     deviceErrored.store (false);
+
+    // Channel layout may have changed. Resolve it again before audio starts.
+    inputBufferIndex.store (findInputBufferIndex (device->getActiveInputChannels(),
+                                                  device->getInputChannelNames().size(),
+                                                  inputChannel.load()));
 }
 
 void AudioEngine::audioDeviceStopped()
@@ -189,6 +219,7 @@ void AudioEngine::changeListenerCallback (juce::ChangeBroadcaster*)
     if (! recovering)
         rememberWorkingDevice();
 
+    updateInputRouting();
     sendChangeMessage();
 }
 
@@ -244,5 +275,6 @@ void AudioEngine::tryToRecoverDevice()
         }
     }
 
+    updateInputRouting();
     sendChangeMessage();
 }

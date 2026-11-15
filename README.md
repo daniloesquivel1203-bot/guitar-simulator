@@ -16,8 +16,9 @@ amp, cabinet and pedals arrive in the next milestones.
    shows the device in use. On Windows the app picks an ASIO driver on first
    launch if one is installed.
 3. Click **Audio settings** to change the device, sample rate or buffer size,
-   and set **Guitar input** to the channel the guitar is plugged into. On a
-   Focusrite Scarlett Solo the instrument jack is input 2.
+   and set **Guitar input** to the channel the guitar is plugged into. Which
+   number that is depends on the interface. Pick the one that makes the input
+   meter move when you play.
 4. Play. The input meter should move, and the red light above it means the
    interface input is clipping, so turn its gain knob down.
 

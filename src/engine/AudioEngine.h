@@ -43,12 +43,17 @@ public:
 
     Status getStatus() const;
 
-    /** Names of the input channels currently enabled on the device. */
-    juce::StringArray getActiveInputChannelNames() const;
+    /** Names of every input channel the device has, enabled or not. */
+    juce::StringArray getInputChannelNames() const;
 
-    /** Index into getActiveInputChannelNames() of the channel the guitar is on. */
+    /** The device input channel the guitar is on, counted from 0 across all of
+        the device's inputs. Choosing a channel that is switched off enables it. */
     int getInputChannel() const noexcept   { return inputChannel.load(); }
-    void setInputChannel (int index);
+    void setInputChannel (int deviceChannelIndex);
+
+    /** False when the chosen channel does not exist on the current device or is
+        switched off, in which case the app outputs silence. */
+    bool isInputChannelAvailable() const noexcept   { return inputBufferIndex.load() >= 0; }
 
     void setInputGainDb (float db);
     void setOutputGainDb (float db);
@@ -66,6 +71,7 @@ private:
 
     void preferAsioOnFirstRun();
     void rememberWorkingDevice();
+    void updateInputRouting();
     void tryToRecoverDevice();
 
     juce::PropertiesFile& settings;
@@ -73,6 +79,10 @@ private:
     SignalChain chain;
 
     std::atomic<int> inputChannel { 0 };
+
+    // Position of the chosen channel within the buffers the device delivers,
+    // which only contain enabled channels. -1 means the channel is unavailable.
+    std::atomic<int> inputBufferIndex { -1 };
     std::atomic<juce::uint32> callbackCount { 0 };
     std::atomic<bool> deviceErrored { false };
 
