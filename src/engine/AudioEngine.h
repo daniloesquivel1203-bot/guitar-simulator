@@ -49,7 +49,8 @@ public:
     juce::StringArray getInputChannelNames() const;
 
     /** The device input channel the guitar is on, counted from 0 across all of
-        the device's inputs. Choosing a channel that is switched off enables it. */
+        the device's inputs. The engine keeps every input switched on, so this
+        always matches the numbering on the interface. */
     int getInputChannel() const noexcept   { return inputChannel.load(); }
     void setInputChannel (int deviceChannelIndex);
 
@@ -80,6 +81,7 @@ private:
     void saveToneSettings();
     void rememberWorkingDevice();
     void updateInputRouting();
+    void enableAllInputs();
     void tryToRecoverDevice();
 
     juce::PropertiesFile& settings;
@@ -104,6 +106,7 @@ private:
     juce::String workingDeviceType;
     juce::AudioDeviceManager::AudioDeviceSetup workingSetup;
     juce::String lastMessage;
+    juce::String inputsEnabledForDevice;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioEngine)
 };

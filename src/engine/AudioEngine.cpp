@@ -31,6 +31,7 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settingsToUse)
     if (savedState == nullptr)
         preferAsioOnFirstRun();
 
+    enableAllInputs();
     rememberWorkingDevice();
     updateInputRouting();
 
@@ -149,23 +150,35 @@ void AudioEngine::setInputChannel (int deviceChannelIndex)
     inputChannel.store (juce::jmax (0, deviceChannelIndex));
     settings.setValue (inputChannelKey, inputChannel.load());
 
-    // Switch the channel on if the device has it but it is not enabled yet.
-    if (auto* device = deviceManager.getCurrentAudioDevice())
-    {
-        const auto channel = inputChannel.load();
-
-        if (channel < device->getInputChannelNames().size() && ! device->getActiveInputChannels()[channel])
-        {
-            auto setup = deviceManager.getAudioDeviceSetup();
-            setup.useDefaultInputChannels = false;
-            setup.inputChannels = device->getActiveInputChannels();
-            setup.inputChannels.setBit (channel);
-            deviceManager.setAudioDeviceSetup (setup, true);
-        }
-    }
-
     updateInputRouting();
     sendChangeMessage();
+}
+
+void AudioEngine::enableAllInputs()
+{
+    auto* device = deviceManager.getCurrentAudioDevice();
+
+    if (device == nullptr)
+        return;
+
+    // Opening only some of a device's inputs makes the channel numbering hard to
+    // follow, so every input is always open and the guitar input picker chooses
+    // among them. Try once per device, in case a driver refuses the request.
+    const auto deviceId = device->getTypeName() + "/" + device->getName();
+    const auto numInputs = device->getInputChannelNames().size();
+
+    if (numInputs == 0
+        || device->getActiveInputChannels().countNumberOfSetBits() == numInputs
+        || deviceId == inputsEnabledForDevice)
+        return;
+
+    inputsEnabledForDevice = deviceId;
+
+    auto setup = deviceManager.getAudioDeviceSetup();
+    setup.useDefaultInputChannels = false;
+    setup.inputChannels.clear();
+    setup.inputChannels.setRange (0, numInputs, true);
+    deviceManager.setAudioDeviceSetup (setup, true);
 }
 
 void AudioEngine::updateInputRouting()
@@ -269,7 +282,10 @@ void AudioEngine::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     // Only save a state that has a device, so a lost device is not forgotten.
     if (! recovering)
+    {
+        enableAllInputs();
         rememberWorkingDevice();
+    }
 
     updateInputRouting();
     sendChangeMessage();

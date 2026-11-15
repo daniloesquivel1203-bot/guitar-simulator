@@ -2,7 +2,8 @@
 
 AudioSettingsPanel::AudioSettingsPanel (AudioEngine& engineToUse)
     : engine (engineToUse),
-      deviceSelector (engine.getDeviceManager(), 0, 256, 1, 256, false, false, false, false)
+      // Asking for 256 inputs hides the per-input checklist. The engine keeps all inputs on.
+      deviceSelector (engine.getDeviceManager(), 256, 256, 1, 256, false, false, false, false)
 {
     addAndMakeVisible (deviceSelector);
 
@@ -18,7 +19,7 @@ AudioSettingsPanel::AudioSettingsPanel (AudioEngine& engineToUse)
     };
     addAndMakeVisible (guitarInput);
 
-    hint.setText ("Play and watch the level bars above. Set Guitar input to the one that moves. It is sent to both ears.\n"
+    hint.setText ("Play and watch the level bars above, one per input. Set Guitar input to the one that moves.\n"
                   "Turn off Direct Monitor on your interface, or you will hear the dry guitar on top.\n"
                   "A smaller buffer size means less delay. Raise it if you hear crackles.",
                   juce::dontSendNotification);
@@ -80,7 +81,7 @@ void AudioSettingsPanel::paint (juce::Graphics& g)
         const bool chosen = row == engine.getInputChannel();
 
         g.setColour (juce::Colours::white.withAlpha (chosen ? 0.9f : 0.5f));
-        g.drawText ("Input " + juce::String (row + 1) + " level", line.removeFromLeft (labelWidth).withTrimmedRight (6),
+        g.drawText (juce::String (row + 1) + ": " + inputNames[row], line.removeFromLeft (labelWidth).withTrimmedRight (6),
                     juce::Justification::centredRight);
 
         auto bar = line.reduced (0, 5).toFloat();
