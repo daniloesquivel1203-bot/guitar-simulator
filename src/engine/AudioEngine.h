@@ -2,6 +2,8 @@
 
 #include "SignalChain.h"
 
+#include <array>
+
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_data_structures/juce_data_structures.h>
 
@@ -55,6 +57,10 @@ public:
         switched off, in which case the app outputs silence. */
     bool isInputChannelAvailable() const noexcept   { return inputBufferIndex.load() >= 0; }
 
+    /** Highest level seen on one device input since this was last called, as
+        linear gain. Lets the settings screen show which input carries a signal. */
+    float readInputChannelPeak (int deviceChannelIndex) noexcept;
+
     void setInputGainDb (float db);
     void setOutputGainDb (float db);
 
@@ -70,6 +76,8 @@ private:
     void timerCallback() override;
 
     void preferAsioOnFirstRun();
+    void loadToneSettings();
+    void saveToneSettings();
     void rememberWorkingDevice();
     void updateInputRouting();
     void tryToRecoverDevice();
@@ -83,6 +91,9 @@ private:
     // Position of the chosen channel within the buffers the device delivers,
     // which only contain enabled channels. -1 means the channel is unavailable.
     std::atomic<int> inputBufferIndex { -1 };
+    static constexpr int maxMeteredInputs = 32;
+    std::array<std::atomic<float>, maxMeteredInputs> inputChannelPeaks {};
+
     std::atomic<juce::uint32> callbackCount { 0 };
     std::atomic<bool> deviceErrored { false };
 

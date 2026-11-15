@@ -8,6 +8,7 @@ const juce::Identifier deviceStateKey { "audioDeviceState" };
 const char* const inputChannelKey = "inputChannel";
 const char* const inputGainKey = "inputGainDb";
 const char* const outputGainKey = "outputGainDb";
+const char* const cabinetSourceKey = "cab.source";
 
 constexpr int watchdogIntervalMs = 1000;
 constexpr int stalledTicksBeforeRecovery = 3;
@@ -19,6 +20,8 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settingsToUse)
     inputChannel.store (juce::jmax (0, settings.getIntValue (inputChannelKey, 0)));
     chain.setInputGainDb ((float) settings.getDoubleValue (inputGainKey, 0.0));
     chain.setOutputGainDb ((float) settings.getDoubleValue (outputGainKey, -6.0));
+
+    loadToneSettings();
 
     const auto savedState = settings.getXmlValue (deviceStateKey.toString());
 
@@ -42,7 +45,46 @@ AudioEngine::~AudioEngine()
     deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (this);
     deviceManager.closeAudioDevice();
+    saveToneSettings();
     settings.saveIfNeeded();
+}
+
+void AudioEngine::loadToneSettings()
+{
+    for (auto* parameter : chain.getAmp().getParameters())
+        parameter->set ((float) settings.getDoubleValue (parameter->id, parameter->defaultValue));
+
+    for (auto* parameter : chain.getCabinet().getParameters())
+        parameter->set ((float) settings.getDoubleValue (parameter->id, parameter->defaultValue));
+
+    chain.getCabinet().restoreFromDescription (settings.getValue (cabinetSourceKey));
+}
+
+void AudioEngine::saveToneSettings()
+{
+    // setValue only marks the file as changed when a value really differs.
+    for (auto* parameter : chain.getAmp().getParameters())
+        settings.setValue (parameter->id, (double) parameter->get());
+
+    for (auto* parameter : chain.getCabinet().getParameters())
+        settings.setValue (parameter->id, (double) parameter->get());
+
+    settings.setValue (cabinetSourceKey, chain.getCabinet().getSourceDescription());
+}
+
+float AudioEngine::readInputChannelPeak (int deviceChannelIndex) noexcept
+{
+    if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        const auto bufferIndex = findInputBufferIndex (device->getActiveInputChannels(),
+                                                       device->getInputChannelNames().size(),
+                                                       deviceChannelIndex);
+
+        if (juce::isPositiveAndBelow (bufferIndex, maxMeteredInputs))
+            return inputChannelPeaks[(size_t) bufferIndex].exchange (0.0f);
+    }
+
+    return 0.0f;
 }
 
 void AudioEngine::preferAsioOnFirstRun()
@@ -158,6 +200,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
     juce::ScopedNoDenormals noDenormals;
     callbackCount.fetch_add (1);
 
+    for (int channel = 0; channel < juce::jmin (numInputChannels, (int) maxMeteredInputs); ++channel)
+    {
+        const auto range = juce::FloatVectorOperations::findMinAndMax (inputChannelData[channel], numSamples);
+        const auto peak = juce::jmax (std::abs (range.getStart()), std::abs (range.getEnd()));
+        auto& stored = inputChannelPeaks[(size_t) channel];
+
+        if (peak > stored.load (std::memory_order_relaxed))
+            stored.store (peak, std::memory_order_relaxed);
+    }
+
     if (numOutputChannels <= 0)
         return;
 
@@ -225,6 +277,8 @@ void AudioEngine::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void AudioEngine::timerCallback()
 {
+    saveToneSettings();
+
     auto* device = deviceManager.getCurrentAudioDevice();
     const auto count = callbackCount.load();
 

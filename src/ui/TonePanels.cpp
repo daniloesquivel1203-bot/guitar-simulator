@@ -1,0 +1,156 @@
+#include "TonePanels.h"
+
+namespace
+{
+constexpr int knobWidth = 84;
+}
+
+void TonePanel::paint (juce::Graphics& g)
+{
+    g.setColour (juce::Colour (0xff2b3238));
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), 8.0f);
+
+    g.setColour (juce::Colours::white.withAlpha (0.7f));
+    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    g.drawText (title, getHeaderArea(), juce::Justification::centredLeft);
+}
+
+//==============================================================================
+AmpPanel::AmpPanel (AmpModel& ampToUse)
+    : TonePanel ("AMP"),
+      amp (ampToUse),
+      power (amp.enabled),
+      gain (amp.gain), bass (amp.bass), mid (amp.mid),
+      treble (amp.treble), presence (amp.presence), master (amp.master)
+{
+    voicing.addItemList (AmpModel::getVoicingNames(), 1);
+    voicing.setSelectedItemIndex (amp.voicing.getIndex(), juce::dontSendNotification);
+    voicing.onChange = [this] { amp.voicing.set ((float) voicing.getSelectedItemIndex()); };
+
+    for (auto* component : std::initializer_list<juce::Component*> { &power, &voicing, &gain, &bass, &mid,
+                                                                     &treble, &presence, &master })
+        addAndMakeVisible (component);
+}
+
+void AmpPanel::resized()
+{
+    auto header = getHeaderArea();
+    power.setBounds (header.removeFromRight (60));
+    header.removeFromRight (12);
+    voicing.setBounds (header.removeFromRight (140));
+
+    auto area = getContentArea();
+    const auto spacing = juce::jmax (0, (area.getWidth() - 6 * knobWidth) / 5);
+
+    for (auto* knob : { &gain, &bass, &mid, &treble, &presence, &master })
+    {
+        knob->setBounds (area.removeFromLeft (knobWidth));
+        area.removeFromLeft (spacing);
+    }
+}
+
+//==============================================================================
+CabinetPanel::CabinetPanel (Cabinet& cabinetToUse)
+    : TonePanel ("CABINET"),
+      cabinet (cabinetToUse),
+      power (cabinet.enabled),
+      lowCut (cabinet.lowCut, true), highCut (cabinet.highCut, true)
+{
+    choice.onChange = [this] { choiceChanged(); };
+    refreshChoices();
+
+    message.setFont (juce::FontOptions (13.0f));
+    message.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
+    message.setJustificationType (juce::Justification::centredLeft);
+    message.setText ("Built-in cabinets are approximations. For the most realistic sound, load an impulse response file "
+                     "(WAV or AIFF). Many free ones are available online.",
+                     juce::dontSendNotification);
+
+    for (auto* component : std::initializer_list<juce::Component*> { &power, &choice, &lowCut, &highCut, &message })
+        addAndMakeVisible (component);
+}
+
+void CabinetPanel::resized()
+{
+    auto header = getHeaderArea();
+    power.setBounds (header.removeFromRight (60));
+    header.removeFromRight (12);
+    choice.setBounds (header.removeFromRight (240));
+
+    auto area = getContentArea();
+    lowCut.setBounds (area.removeFromLeft (knobWidth));
+    area.removeFromLeft (12);
+    highCut.setBounds (area.removeFromLeft (knobWidth));
+    area.removeFromLeft (20);
+    message.setBounds (area);
+}
+
+void CabinetPanel::refreshChoices()
+{
+    choice.clear (juce::dontSendNotification);
+    choice.addItemList (Cabinet::getBuiltInNames(), firstBuiltInId);
+    choice.addSeparator();
+
+    if (cabinet.getBuiltInIndex() < 0)
+        choice.addItem ("File: " + cabinet.getCurrentName(), loadedFileId);
+
+    choice.addItem ("Load impulse response file...", loadFileId);
+
+    choice.setSelectedId (cabinet.getBuiltInIndex() >= 0 ? firstBuiltInId + cabinet.getBuiltInIndex()
+                                                         : (int) loadedFileId,
+                          juce::dontSendNotification);
+}
+
+void CabinetPanel::choiceChanged()
+{
+    const auto id = choice.getSelectedId();
+
+    if (id == loadFileId)
+    {
+        chooseFile();
+        return;
+    }
+
+    if (id >= firstBuiltInId && id < loadedFileId)
+    {
+        cabinet.selectBuiltIn (id - firstBuiltInId);
+        refreshChoices();
+    }
+}
+
+void CabinetPanel::chooseFile()
+{
+    const auto startFolder = cabinet.getLoadedFile().existsAsFile()
+                                 ? cabinet.getLoadedFile().getParentDirectory()
+                                 : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+
+    fileChooser = std::make_unique<juce::FileChooser> ("Choose an impulse response file", startFolder,
+                                                       "*.wav;*.aif;*.aiff;*.flac");
+
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [this] (const juce::FileChooser& chooser)
+                              {
+                                  const auto file = chooser.getResult();
+
+                                  // An empty result means the dialog was cancelled.
+                                  if (file != juce::File())
+                                  {
+                                      const auto error = cabinet.loadFile (file);
+
+                                      if (error.isNotEmpty())
+                                      {
+                                          message.setColour (juce::Label::textColourId, juce::Colour (0xfff5a524));
+                                          message.setText (error, juce::dontSendNotification);
+                                      }
+                                      else
+                                      {
+                                          message.setColour (juce::Label::textColourId,
+                                                             juce::Colours::white.withAlpha (0.6f));
+                                          message.setText ("Loaded " + file.getFileName() + ".",
+                                                           juce::dontSendNotification);
+                                      }
+                                  }
+
+                                  refreshChoices();
+                              });
+}

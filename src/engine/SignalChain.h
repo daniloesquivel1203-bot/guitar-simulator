@@ -1,15 +1,19 @@
 #pragma once
 
+#include "AmpModel.h"
+#include "Cabinet.h"
+#include "SafetyLimiter.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <atomic>
+#include <vector>
 
 /** The audio path from one mono input to a stereo output.
 
     This class has no knowledge of audio devices, so it can be tested offline.
-    For now it is a clean passthrough with an input trim, an output level and
-    level metering. Pedals, the amp and the cabinet are inserted between the
-    two gain stages in later milestones.
+    The order is: input trim, amp, cabinet, output level, safety limiter. Pedals
+    are added around the amp in the next milestone.
 
     process() runs on the audio thread and never allocates or locks. The
     setters and meter readers may be called from any thread.
@@ -32,6 +36,9 @@ public:
         `left` and `right` may point to the same buffer. */
     void process (const float* input, float* left, float* right, int numSamples) noexcept;
 
+    AmpModel& getAmp() noexcept        { return amp; }
+    Cabinet& getCabinet() noexcept     { return cabinet; }
+
     void setInputGainDb (float db) noexcept;
     void setOutputGainDb (float db) noexcept;
     void setMuted (bool shouldBeMuted) noexcept   { muted.store (shouldBeMuted); }
@@ -46,6 +53,13 @@ public:
     bool readInputClipped() noexcept  { return inputClipped.exchange (false); }
 
 private:
+    void processChunk (const float* input, float* left, float* right, int numSamples) noexcept;
+
+    AmpModel amp;
+    Cabinet cabinet;
+    SafetyLimiter limiter;
+    std::vector<float> scratch = std::vector<float> (512);
+
     std::atomic<float> inputGainDb { 0.0f };
     std::atomic<float> outputGainDb { 0.0f };
     std::atomic<bool> muted { false };

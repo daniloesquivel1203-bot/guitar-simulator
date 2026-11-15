@@ -16,15 +16,25 @@ void raisePeak (std::atomic<float>& peak, float candidate) noexcept
 }
 }
 
-void SignalChain::prepare (double sampleRate, int)
+void SignalChain::prepare (double sampleRate, int maxBlockSize)
 {
+    scratch.assign ((size_t) juce::jmax (16, maxBlockSize), 0.0f);
+
     inputGain.reset (sampleRate, gainSmoothingSeconds);
     outputGain.reset (sampleRate, gainSmoothingSeconds);
+
+    amp.prepare (sampleRate, (int) scratch.size());
+    cabinet.prepare (sampleRate, (int) scratch.size());
+    limiter.prepare (sampleRate);
     reset();
 }
 
 void SignalChain::reset()
 {
+    amp.reset();
+    cabinet.reset();
+    limiter.reset();
+
     inputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (inputGainDb.load()));
     outputGain.setCurrentAndTargetValue (muted.load() ? 0.0f
                                                       : juce::Decibels::decibelsToGain (outputGainDb.load()));
@@ -46,6 +56,19 @@ void SignalChain::process (const float* input, float* left, float* right, int nu
     outputGain.setTargetValue (muted.load() ? 0.0f
                                             : juce::Decibels::decibelsToGain (outputGainDb.load()));
 
+    // A device may deliver more samples than it promised, so work in chunks
+    // that always fit the buffers set up in prepare().
+    const auto chunkSize = (int) scratch.size();
+
+    for (int offset = 0; offset < numSamples; offset += chunkSize)
+        processChunk (input != nullptr ? input + offset : nullptr, left + offset, right + offset,
+                      juce::jmin (chunkSize, numSamples - offset));
+}
+
+void SignalChain::processChunk (const float* input, float* left, float* right, int numSamples) noexcept
+{
+    auto* mono = scratch.data();
+
     float blockInputPeak = 0.0f;
     float blockOutputPeak = 0.0f;
     bool clipped = false;
@@ -55,13 +78,17 @@ void SignalChain::process (const float* input, float* left, float* right, int nu
         const float raw = input != nullptr ? input[i] : 0.0f;
         clipped = clipped || std::abs (raw) >= clipThreshold;
 
-        const float trimmed = raw * inputGain.getNextValue();
-        blockInputPeak = juce::jmax (blockInputPeak, std::abs (trimmed));
+        mono[i] = raw * inputGain.getNextValue();
+        blockInputPeak = juce::jmax (blockInputPeak, std::abs (mono[i]));
+    }
 
-        // Pedals, amp and cabinet go here in later milestones.
+    amp.process (mono, numSamples);
+    cabinet.process (mono, numSamples);
 
-        // The hard clamp protects headphones until the limiter arrives in milestone 3.
-        const float out = juce::jlimit (-1.0f, 1.0f, trimmed * outputGain.getNextValue());
+    for (int i = 0; i < numSamples; ++i)
+    {
+        // The limiter is last so nothing upstream can push the output past its ceiling.
+        const float out = limiter.processSample (mono[i] * outputGain.getNextValue());
         blockOutputPeak = juce::jmax (blockOutputPeak, std::abs (out));
 
         left[i] = out;

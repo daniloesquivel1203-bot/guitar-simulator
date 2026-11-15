@@ -15,8 +15,13 @@ const juce::Colour warning { 0xfff5a524 };
 }
 
 MainComponent::MainComponent (AudioEngine& engineToUse)
-    : engine (engineToUse)
+    : engine (engineToUse),
+      ampPanel (engine.getChain().getAmp()),
+      cabinetPanel (engine.getChain().getCabinet())
 {
+    addAndMakeVisible (ampPanel);
+    addAndMakeVisible (cabinetPanel);
+
     title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
     addAndMakeVisible (title);
 
@@ -62,7 +67,7 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     refreshStatus();
     startTimerHz (meterRefreshHz);
 
-    setSize (900, 560);
+    setSize (960, 560);
 }
 
 MainComponent::~MainComponent()
@@ -90,11 +95,6 @@ void MainComponent::paint (juce::Graphics& g)
     g.setColour (panel);
     g.fillRect (area.removeFromLeft (stripWidth));
     g.fillRect (area.removeFromRight (stripWidth));
-
-    g.setColour (juce::Colours::white.withAlpha (0.35f));
-    g.setFont (juce::FontOptions (15.0f));
-    g.drawFittedText ("Clean passthrough.\nPedals, amp and cabinet will appear here in the next milestones.",
-                      area.reduced (24), juce::Justification::centred, 3);
 }
 
 void MainComponent::resized()
@@ -130,6 +130,11 @@ void MainComponent::resized()
 
     layoutStrip (area.removeFromLeft (stripWidth), inputHeading, inputMeter, inputGain, nullptr);
     layoutStrip (area.removeFromRight (stripWidth), outputHeading, outputMeter, outputGain, &muteButton);
+
+    area = area.reduced (16);
+    cabinetPanel.setBounds (area.removeFromBottom (area.getHeight() * 2 / 5));
+    area.removeFromBottom (16);
+    ampPanel.setBounds (area);
 }
 
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)

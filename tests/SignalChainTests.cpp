@@ -16,6 +16,9 @@ struct Rig
 {
     Rig()
     {
+        // These tests cover routing, gain and metering, so the tone blocks are off.
+        chain.getAmp().enabled.set (0.0f);
+        chain.getCabinet().enabled.set (0.0f);
         chain.prepare (sampleRate, blockSize);
     }
 
@@ -98,15 +101,28 @@ TEST_CASE ("a missing input produces silence")
     }
 }
 
-TEST_CASE ("output never exceeds full scale")
+TEST_CASE ("the limiter holds an overloaded output at its ceiling")
 {
     Rig rig;
     rig.chain.setInputGainDb (24.0f);
     rig.chain.setOutputGainDb (6.0f);
     rig.run (-0.9f);
 
-    REQUIRE_THAT (rig.left.back(), WithinAbs (-1.0, 0.0));
-    REQUIRE_THAT (rig.right.back(), WithinAbs (-1.0, 0.0));
+    REQUIRE_THAT (rig.left.back(), WithinAbs (-SafetyLimiter::ceiling, 1.0e-5));
+    REQUIRE_THAT (rig.right.back(), WithinAbs (-SafetyLimiter::ceiling, 1.0e-5));
+}
+
+TEST_CASE ("blocks larger than the prepared size are handled")
+{
+    Rig rig;
+    const size_t bigBlock = 1000;
+    std::vector<float> input (bigBlock, 0.25f), left (bigBlock), right (bigBlock);
+
+    for (int block = 0; block < 10; ++block)
+        rig.chain.process (input.data(), left.data(), right.data(), (int) bigBlock);
+
+    REQUIRE_THAT (left.back(), WithinAbs (0.25, 1.0e-6));
+    REQUIRE_THAT (right.front(), WithinAbs (0.25, 1.0e-6));
 }
 
 TEST_CASE ("left and right may share one buffer")

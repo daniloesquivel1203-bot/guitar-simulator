@@ -26,9 +26,12 @@ target_sources(GuitarSimulator
     PRIVATE
         src/Main.cpp
         src/MainComponent.cpp
+        src/engine/AmpModel.cpp
         src/engine/AudioEngine.cpp
+        src/engine/Cabinet.cpp
         src/engine/SignalChain.cpp
-        src/ui/AudioSettingsPanel.cpp)
+        src/ui/AudioSettingsPanel.cpp
+        src/ui/TonePanels.cpp)
 
 target_include_directories(GuitarSimulator PRIVATE src)
 
@@ -45,6 +48,7 @@ target_compile_definitions(GuitarSimulator
 target_link_libraries(GuitarSimulator
     PRIVATE
         juce::juce_audio_devices
+        juce::juce_audio_formats
         juce::juce_audio_processors
         juce::juce_audio_utils
         juce::juce_dsp
@@ -69,9 +73,15 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
 
     target_sources(GuitarSimulatorTests
         PRIVATE
+            src/engine/AmpModel.cpp
+            src/engine/Cabinet.cpp
             src/engine/SignalChain.cpp
+            tests/AmpModelTests.cpp
+            tests/CabinetTests.cpp
             tests/InputRoutingTests.cpp
-            tests/SignalChainTests.cpp)
+            tests/SafetyLimiterTests.cpp
+            tests/SignalChainTests.cpp
+            tests/TestSignals.h)
 
     target_include_directories(GuitarSimulatorTests PRIVATE src)
 
@@ -83,6 +93,8 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
     target_link_libraries(GuitarSimulatorTests
         PRIVATE
             juce::juce_audio_basics
+            juce::juce_audio_formats
+            juce::juce_dsp
             Catch2::Catch2WithMain
         PUBLIC
             juce::juce_recommended_config_flags

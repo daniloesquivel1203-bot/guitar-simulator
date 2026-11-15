@@ -2,6 +2,7 @@
 
 #include "engine/AudioEngine.h"
 #include "ui/LevelMeter.h"
+#include "ui/TonePanels.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -41,6 +42,9 @@ private:
     LevelMeter outputMeter { false };
     juce::Slider outputGain;
     juce::ToggleButton muteButton { "Mute" };
+
+    AmpPanel ampPanel;
+    CabinetPanel cabinetPanel;
 
     int ticksSinceStatusRefresh = 0;
 
