@@ -9,24 +9,39 @@ public:
 
     void initialise (const juce::String&) override
     {
-        mainWindow = std::make_unique<MainWindow> (getApplicationName());
+        juce::PropertiesFile::Options options;
+        options.applicationName = getApplicationName();
+        options.filenameSuffix = ".settings";
+        options.folderName = getApplicationName();
+        options.osxLibrarySubFolder = "Application Support";
+        options.millisecondsBeforeSaving = 1000;
+        settings.setStorageParameters (options);
+
+        engine = std::make_unique<AudioEngine> (*settings.getUserSettings());
+        mainWindow = std::make_unique<MainWindow> (getApplicationName(), *engine);
     }
 
-    void shutdown() override              { mainWindow.reset(); }
+    void shutdown() override
+    {
+        mainWindow.reset();
+        engine.reset();
+        settings.closeFiles();
+    }
+
     void systemRequestedQuit() override   { quit(); }
 
 private:
     class MainWindow final : public juce::DocumentWindow
     {
     public:
-        explicit MainWindow (const juce::String& name)
+        MainWindow (const juce::String& name, AudioEngine& engineToUse)
             : DocumentWindow (name,
                               juce::Desktop::getInstance().getDefaultLookAndFeel()
                                   .findColour (juce::ResizableWindow::backgroundColourId),
                               DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new MainComponent(), true);
+            setContentOwned (new MainComponent (engineToUse), true);
             setResizable (true, true);
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
@@ -41,6 +56,9 @@ private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
     };
 
+    juce::ApplicationProperties settings;
+    juce::TooltipWindow tooltips;
+    std::unique_ptr<AudioEngine> engine;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

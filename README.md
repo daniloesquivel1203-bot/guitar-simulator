@@ -3,8 +3,26 @@
 A standalone virtual guitar amp and pedalboard. Plug a guitar into any audio
 interface, and the app processes it live and sends it to your headphones.
 
-Status: milestone 1 of 6, the project skeleton. The app opens an empty window.
-Audio arrives in milestone 2.
+Status: milestone 2 of 6, clean passthrough. The app opens your interface,
+takes the guitar from one input channel and plays it unprocessed in both ears,
+with level meters, an input trim, an output level and a latency readout. The
+amp, cabinet and pedals arrive in the next milestones.
+
+## First run
+
+1. Turn off Direct Monitor on your interface, or you will hear the dry guitar
+   on top of the app's output.
+2. Start the app with your headphone volume low. The status line at the top
+   shows the device in use. On Windows the app picks an ASIO driver on first
+   launch if one is installed.
+3. Click **Audio settings** to change the device, sample rate or buffer size,
+   and set **Guitar input** to the channel the guitar is plugged into. On a
+   Focusrite Scarlett Solo the instrument jack is input 2.
+4. Play. The input meter should move, and the red light above it means the
+   interface input is clipping, so turn its gain knob down.
+
+Settings are remembered between launches. If the interface is unplugged, the
+app waits and reconnects when it returns.
 
 ## Build on Windows
 
@@ -50,6 +68,16 @@ sudo apt install build-essential cmake ninja-build libasound2-dev libx11-dev \
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 "./build/GuitarSimulator_artefacts/Release/Guitar Simulator"
+```
+
+## Tests
+
+The audio path has automated tests that run without an audio device:
+
+```sh
+cmake -B build -DGUITAR_SIMULATOR_BUILD_TESTS=ON
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
 ```
 
 ## Tech

@@ -24,7 +24,12 @@ juce_add_gui_app(GuitarSimulator
 target_sources(GuitarSimulator
     PRIVATE
         src/Main.cpp
-        src/MainComponent.cpp)
+        src/MainComponent.cpp
+        src/engine/AudioEngine.cpp
+        src/engine/SignalChain.cpp
+        src/ui/AudioSettingsPanel.cpp)
+
+target_include_directories(GuitarSimulator PRIVATE src)
 
 target_compile_definitions(GuitarSimulator
     PRIVATE
@@ -47,3 +52,40 @@ target_link_libraries(GuitarSimulator
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Automated tests for the audio path. They run without any audio device.
+# Enable with: cmake -B build -DGUITAR_SIMULATOR_BUILD_TESTS=ON
+option(GUITAR_SIMULATOR_BUILD_TESTS "Build the automated tests" OFF)
+
+if(GUITAR_SIMULATOR_BUILD_TESTS)
+    FetchContent_Declare(Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.7.1
+        GIT_SHALLOW    TRUE)
+    FetchContent_MakeAvailable(Catch2)
+
+    juce_add_console_app(GuitarSimulatorTests PRODUCT_NAME "GuitarSimulatorTests")
+
+    target_sources(GuitarSimulatorTests
+        PRIVATE
+            src/engine/SignalChain.cpp
+            tests/SignalChainTests.cpp)
+
+    target_include_directories(GuitarSimulatorTests PRIVATE src)
+
+    target_compile_definitions(GuitarSimulatorTests
+        PRIVATE
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0)
+
+    target_link_libraries(GuitarSimulatorTests
+        PRIVATE
+            juce::juce_audio_basics
+            Catch2::Catch2WithMain
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+
+    enable_testing()
+    add_test(NAME GuitarSimulatorTests COMMAND GuitarSimulatorTests)
+endif()
