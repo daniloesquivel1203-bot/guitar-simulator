@@ -146,3 +146,57 @@ TEST_CASE ("the tuner tap delivers the most recent samples in order, only while 
     REQUIRE_THAT (window.back(), WithinAbs (9999.0, 0.0));
     REQUIRE_THAT (window.front(), WithinAbs (10000.0 - TunerTap::windowSize, 0.0));
 }
+
+TEST_CASE ("every tuning lists six strings from thickest to thinnest")
+{
+    REQUIRE (Tuning::getAll().front().name.startsWith ("Standard"));
+
+    for (const auto& tuning : Tuning::getAll())
+    {
+        INFO (tuning.name);
+        REQUIRE (tuning.name.isNotEmpty());
+
+        for (size_t i = 1; i < tuning.notes.size(); ++i)
+            REQUIRE (tuning.notes[i] > tuning.notes[i - 1]);
+    }
+}
+
+TEST_CASE ("tunings name their notes and frequencies correctly")
+{
+    const auto& standard = Tuning::getAll().front();
+
+    REQUIRE (Tuning::noteName (standard.notes[0]) == "E2");
+    REQUIRE (Tuning::noteName (standard.notes[5]) == "E4");
+    REQUIRE (Tuning::noteName (standard.notes[4], false) == "B");
+    REQUIRE_THAT (Tuning::noteToHz (standard.notes[0]), WithinAbs (82.41, 0.01));
+    REQUIRE_THAT (Tuning::noteToHz (69), WithinAbs (440.0, 1.0e-9));
+
+    // Drop C lowers the thickest string two whole steps to C2.
+    for (const auto& tuning : Tuning::getAll())
+        if (tuning.name.startsWith ("Drop C ("))
+            REQUIRE (Tuning::noteName (tuning.notes[0]) == "C2");
+}
+
+TEST_CASE ("the tuner measures a pitch against the chosen string, not the nearest note")
+{
+    // A string a whole step low is 200 cents flat of its target, even though
+    // it is exactly on another note.
+    REQUIRE_THAT (Tuning::centsFrom (Tuning::noteToHz (38), 40), WithinAbs (-200.0, 1.0e-6));
+    REQUIRE_THAT (Tuning::centsFrom (Tuning::noteToHz (40) * std::pow (2.0, 10.0 / 1200.0), 40), WithinAbs (10.0, 1.0e-6));
+}
+
+TEST_CASE ("the tuner picks the string closest to the note being played")
+{
+    const auto& standard = Tuning::getAll().front();
+
+    for (int string = 0; string < 6; ++string)
+    {
+        const auto hz = Tuning::noteToHz (standard.notes[(size_t) string]);
+        REQUIRE (standard.closestString (hz) == string);
+        REQUIRE (standard.closestString (hz * 1.03) == string);   // half a semitone sharp
+        REQUIRE (standard.closestString (hz / 1.03) == string);
+    }
+
+    REQUIRE (standard.closestString (40.0) == 0);
+    REQUIRE (standard.closestString (900.0) == 5);
+}

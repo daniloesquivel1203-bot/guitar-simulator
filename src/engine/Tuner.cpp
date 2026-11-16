@@ -113,3 +113,59 @@ TunerReading TunerReading::fromHz (double hz)
     reading.hz = hz;
     return reading;
 }
+
+namespace
+{
+const char* const noteNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+}
+
+const std::vector<Tuning>& Tuning::getAll()
+{
+    static const std::vector<Tuning> tunings {
+        { "Standard (E A D G B E)",        { 40, 45, 50, 55, 59, 64 } },
+        { "Drop D (D A D G B E)",          { 38, 45, 50, 55, 59, 64 } },
+        { "Half step down (Eb)",           { 39, 44, 49, 54, 58, 63 } },
+        { "Drop C# (C# G# C# F# A# D#)",   { 37, 44, 49, 54, 58, 63 } },
+        { "Whole step down (D G C F A D)", { 38, 43, 48, 53, 57, 62 } },
+        { "Drop C (C G C F A D)",          { 36, 43, 48, 53, 57, 62 } },
+        { "Drop B (B F# B E G# C#)",       { 35, 42, 47, 52, 56, 61 } },
+        { "Double drop D (D A D G B D)",   { 38, 45, 50, 55, 59, 62 } },
+        { "DADGAD",                        { 38, 45, 50, 55, 57, 62 } },
+        { "Open D (D A D F# A D)",         { 38, 45, 50, 54, 57, 62 } },
+        { "Open E (E B E G# B E)",         { 40, 47, 52, 56, 59, 64 } },
+        { "Open G (D G D G B D)",          { 38, 43, 50, 55, 59, 62 } },
+    };
+
+    return tunings;
+}
+
+juce::String Tuning::noteName (int midiNote, bool withOctave)
+{
+    juce::String name (noteNames[((midiNote % 12) + 12) % 12]);
+
+    if (withOctave)
+        name << ((int) std::floor (midiNote / 12.0) - 1);
+
+    return name;
+}
+
+double Tuning::noteToHz (int midiNote)
+{
+    return 440.0 * std::pow (2.0, (midiNote - 69) / 12.0);
+}
+
+double Tuning::centsFrom (double hz, int midiNote)
+{
+    return 1200.0 * std::log2 (hz / noteToHz (midiNote));
+}
+
+int Tuning::closestString (double hz) const
+{
+    int best = 0;
+
+    for (int i = 1; i < (int) notes.size(); ++i)
+        if (std::abs (centsFrom (hz, notes[(size_t) i])) < std::abs (centsFrom (hz, notes[(size_t) best])))
+            best = i;
+
+    return best;
+}

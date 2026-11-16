@@ -4,14 +4,51 @@ namespace
 {
 const juce::Colour good { 0xff3ecf8e };
 const juce::Colour off { 0xfff5a524 };
+const juce::Colour highlight { 0xff3ea6cf };
 }
 
 TunerPanel::TunerPanel (AudioEngine& engineToUse)
     : TonePanel ("TUNER"), engine (engineToUse)
 {
+    const auto& tunings = Tuning::getAll();
+
+    for (int i = 0; i < (int) tunings.size(); ++i)
+        tuningPicker.addItem (tunings[(size_t) i].name, i + 1);
+
+    tuningIndex = juce::jlimit (0, (int) tunings.size() - 1, engine.getTunerTuning());
+    tuningPicker.setSelectedId (tuningIndex + 1, juce::dontSendNotification);
+    tuningPicker.setTooltip ("The tuning you want the guitar to be in.");
+    tuningPicker.onChange = [this] { tuningChanged(); };
+    addAndMakeVisible (tuningPicker);
+
     muteWhileTuning.setToggleState (true, juce::dontSendNotification);
+    muteWhileTuning.setTooltip ("Silences the output while the tuner is open.");
     muteWhileTuning.onClick = [this] { engine.getChain().setTunerMuted (muteWhileTuning.getToggleState()); };
     addAndMakeVisible (muteWhileTuning);
+
+    autoButton.setTooltip ("Finds the string you are playing by itself.");
+    autoButton.onClick = [this] { chooseString (autoString); };
+    addAndMakeVisible (autoButton);
+
+    for (int i = 0; i < numStrings; ++i)
+    {
+        auto& button = stringButtons[(size_t) i];
+        button.setTooltip ("Tune string " + juce::String (numStrings - i)
+                           + (i == 0 ? " (the thickest)." : i == numStrings - 1 ? " (the thinnest)." : "."));
+        button.onClick = [this, i] { chooseString (i); };
+        addAndMakeVisible (button);
+    }
+
+    for (auto* button : { &autoButton, &stringButtons[0], &stringButtons[1], &stringButtons[2],
+                          &stringButtons[3], &stringButtons[4], &stringButtons[5] })
+    {
+        button->setColour (juce::TextButton::buttonOnColourId, highlight);
+        button->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    }
+
+    chosenString = juce::jlimit ((int) autoString, numStrings - 1, engine.getTunerString());
+    activeString = chosenString;
+    refreshStringButtons();
 
     engine.getChain().setTunerMuted (true);
     engine.getTunerTap().setActive (true);
@@ -24,9 +61,61 @@ TunerPanel::~TunerPanel()
     engine.getChain().setTunerMuted (false);
 }
 
+const Tuning& TunerPanel::getTuning() const
+{
+    return Tuning::getAll()[(size_t) tuningIndex];
+}
+
+void TunerPanel::tuningChanged()
+{
+    tuningIndex = juce::jlimit (0, (int) Tuning::getAll().size() - 1, tuningPicker.getSelectedId() - 1);
+    engine.setTunerTuning (tuningIndex);
+    hasReading = false;
+    refreshStringButtons();
+    repaint();
+}
+
+void TunerPanel::chooseString (int string)
+{
+    chosenString = string;
+    activeString = string;
+    engine.setTunerString (string);
+    hasReading = false;
+    refreshStringButtons();
+    repaint();
+}
+
+void TunerPanel::refreshStringButtons()
+{
+    autoButton.setToggleState (chosenString == autoString, juce::dontSendNotification);
+
+    for (int i = 0; i < numStrings; ++i)
+    {
+        auto& button = stringButtons[(size_t) i];
+        button.setButtonText (Tuning::noteName (getTuning().notes[(size_t) i]));
+        button.setToggleState (i == activeString, juce::dontSendNotification);
+    }
+}
+
 void TunerPanel::resized()
 {
-    muteWhileTuning.setBounds (getHeaderArea().removeFromRight (220));
+    auto header = getHeaderArea();
+    muteWhileTuning.setBounds (header.removeFromRight (120));
+    header.removeFromRight (12);
+    tuningPicker.setBounds (header.removeFromRight (270));
+
+    // One row: Auto, then the six strings from thickest to thinnest.
+    auto row = getContentArea().removeFromBottom (44).reduced (20, 2);
+    const auto gap = 8;
+    const auto width = (row.getWidth() - gap * numStrings) / (numStrings + 1);
+
+    autoButton.setBounds (row.removeFromLeft (width));
+
+    for (auto& button : stringButtons)
+    {
+        row.removeFromLeft (gap);
+        button.setBounds (row.removeFromLeft (width));
+    }
 }
 
 void TunerPanel::timerCallback()
@@ -39,13 +128,20 @@ void TunerPanel::timerCallback()
 
     if (pitch.has_value())
     {
-        const auto latest = TunerReading::fromHz (*pitch);
+        const auto string = chosenString == autoString ? getTuning().closestString (*pitch) : chosenString;
+        const auto cents = Tuning::centsFrom (*pitch, getTuning().notes[(size_t) string]);
 
-        // Glide the needle within a note, and jump when the note changes.
-        const bool sameNote = hasReading && latest.note == reading.note && latest.octave == reading.octave;
-        shownCents = sameNote ? shownCents + 0.5 * (latest.cents - shownCents) : latest.cents;
+        // Glide the needle while on one string, and jump when the string changes.
+        const bool sameString = hasReading && string == activeString;
+        shownCents = sameString ? shownCents + 0.5 * (cents - shownCents) : cents;
 
-        reading = latest;
+        if (string != activeString)
+        {
+            activeString = string;
+            refreshStringButtons();
+        }
+
+        hz = *pitch;
         hasReading = true;
         updatesSinceReading = 0;
     }
@@ -62,25 +158,38 @@ void TunerPanel::paint (juce::Graphics& g)
     TonePanel::paint (g);
 
     auto area = getContentArea();
+    area.removeFromBottom (44 + 8);   // the string buttons
+
+    const bool hasTarget = activeString != autoString;
     const bool inTune = hasReading && std::abs (shownCents) <= inTuneCents;
     const auto accent = inTune ? good : off;
 
-    // Note name.
-    auto noteArea = area.removeFromTop (area.getHeight() * 55 / 100);
-    g.setFont (juce::FontOptions (juce::jmin (96.0f, (float) noteArea.getHeight() * 0.8f), juce::Font::bold));
-    g.setColour (hasReading ? accent : juce::Colours::white.withAlpha (0.25f));
-    g.drawText (hasReading ? reading.note + juce::String (reading.octave) : juce::String ("--"),
-                noteArea, juce::Justification::centred);
+    // The note this string should be tuned to.
+    auto noteArea = area.removeFromTop (area.getHeight() * 50 / 100);
+    const auto target = hasTarget ? Tuning::noteName (getTuning().notes[(size_t) activeString]) : juce::String ("--");
 
-    // Cents scale from -50 to +50.
-    auto scale = area.removeFromTop (44).reduced (40, 0).toFloat();
+    g.setFont (juce::FontOptions (juce::jmin (84.0f, (float) noteArea.getHeight() * 0.85f), juce::Font::bold));
+    g.setColour (hasReading ? accent : juce::Colours::white.withAlpha (hasTarget ? 0.6f : 0.25f));
+    g.drawText (target, noteArea, juce::Justification::centred);
+
+    if (hasTarget)
+    {
+        g.setFont (juce::FontOptions (13.0f));
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.drawText ("String " + juce::String (numStrings - activeString), noteArea.removeFromTop (16),
+                    juce::Justification::centred);
+    }
+
+    // Scale from 50 cents flat to 50 cents sharp of the target note.
+    auto scale = area.removeFromTop (40).reduced (40, 0).toFloat();
     const auto track = scale.withSizeKeepingCentre (scale.getWidth(), 6.0f);
     g.setColour (juce::Colour (0xff1b2126));
     g.fillRoundedRectangle (track, 3.0f);
 
     const auto xForCents = [&track] (double cents)
     {
-        return track.getX() + track.getWidth() * (float) ((juce::jlimit (-50.0, 50.0, cents) + 50.0) / 100.0);
+        return track.getX() + track.getWidth() * (float) ((juce::jlimit (-scaleCents, scaleCents, cents) + scaleCents)
+                                                           / (2.0 * scaleCents));
     };
 
     g.setColour (good.withAlpha (0.35f));
@@ -99,18 +208,25 @@ void TunerPanel::paint (juce::Graphics& g)
     }
 
     // Plain-language instruction underneath.
-    juce::String advice = "Play one open string";
+    juce::String advice = chosenString == autoString ? "Play one open string"
+                                                     : "Play string " + juce::String (numStrings - chosenString);
 
     if (hasReading)
     {
         const auto cents = juce::roundToInt (shownCents);
-        advice = inTune ? juce::String ("In tune")
-                        : cents < 0 ? juce::String (-cents) + " cents flat. Tighten the string."
-                                    : juce::String (cents) + " cents sharp. Loosen the string.";
-        advice << "    " << juce::String (reading.hz, 1) << " Hz";
+
+        if (inTune)
+            advice = "In tune";
+        else if (std::abs (shownCents) > scaleCents)
+            advice = shownCents < 0.0 ? "Too low. Tighten the string." : "Too high. Loosen the string.";
+        else
+            advice = cents < 0 ? juce::String (-cents) + " cents flat. Tighten the string."
+                               : juce::String (cents) + " cents sharp. Loosen the string.";
+
+        advice << "    " << juce::String (hz, 1) << " Hz";
     }
 
     g.setFont (juce::FontOptions (15.0f));
     g.setColour (juce::Colours::white.withAlpha (0.7f));
-    g.drawText (advice, area.removeFromTop (30), juce::Justification::centred);
+    g.drawText (advice, area.removeFromTop (28), juce::Justification::centred);
 }

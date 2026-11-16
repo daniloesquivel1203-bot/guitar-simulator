@@ -47,6 +47,12 @@ public:
     PresetManager& getPresets() noexcept                    { return presets; }
     TunerTap& getTunerTap() noexcept                        { return tunerTap; }
 
+    /** The tuner's remembered choices: which tuning, and which string (-1 = pick automatically). */
+    int getTunerTuning() const          { return settings.getIntValue ("tuner.tuning", 0); }
+    void setTunerTuning (int index)     { settings.setValue ("tuner.tuning", index); }
+    int getTunerString() const          { return settings.getIntValue ("tuner.string", -1); }
+    void setTunerString (int index)     { settings.setValue ("tuner.string", index); }
+
     Status getStatus() const;
 
     /** Names of every input channel the device has, enabled or not. */

@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <array>
 #include <atomic>
 #include <optional>
 #include <vector>
@@ -32,6 +33,27 @@ struct TunerReading
     double hz = 0.0;
 
     static TunerReading fromHz (double hz);
+};
+
+/** A named set of six open-string notes, from the thickest string to the thinnest. */
+struct Tuning
+{
+    juce::String name;
+    std::array<int, 6> notes {};   // MIDI note numbers, where 40 is the low E of standard tuning
+
+    /** Every tuning the tuner offers. Standard is first. */
+    static const std::vector<Tuning>& getAll();
+
+    /** "E2" style name for a MIDI note. */
+    static juce::String noteName (int midiNote, bool withOctave = true);
+
+    static double noteToHz (int midiNote);
+
+    /** How far a pitch is from a target note, in cents. Negative is flat. */
+    static double centsFrom (double hz, int midiNote);
+
+    /** Index (0 = thickest) of the string whose note is closest to this pitch. */
+    int closestString (double hz) const;
 };
 
 /** Carries recent input from the audio thread to the tuner display.
