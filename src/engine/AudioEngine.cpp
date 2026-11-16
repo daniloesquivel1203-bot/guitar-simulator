@@ -9,13 +9,16 @@ const char* const inputChannelKey = "inputChannel";
 const char* const inputGainKey = "inputGainDb";
 const char* const outputGainKey = "outputGainDb";
 const char* const cabinetSourceKey = "cab.source";
+const char* const presetNameKey = "preset.name";
+const char* const presetFactoryKey = "preset.isFactory";
 
 constexpr int watchdogIntervalMs = 1000;
 constexpr int stalledTicksBeforeRecovery = 3;
 }
 
 AudioEngine::AudioEngine (juce::PropertiesFile& settingsToUse)
-    : settings (settingsToUse)
+    : settings (settingsToUse),
+      presets (chain, settingsToUse.getFile().getParentDirectory().getChildFile ("Presets"))
 {
     inputChannel.store (juce::jmax (0, settings.getIntValue (inputChannelKey, 0)));
     chain.setInputGainDb ((float) settings.getDoubleValue (inputGainKey, 0.0));
@@ -56,6 +59,10 @@ void AudioEngine::loadToneSettings()
         parameter->set ((float) settings.getDoubleValue (parameter->id, parameter->defaultValue));
 
     chain.getCabinet().restoreFromDescription (settings.getValue (cabinetSourceKey));
+
+    // On a first run the chain is at its defaults, which is the Default factory preset.
+    presets.setCurrent ({ settings.getValue (presetNameKey, "Default"),
+                          settings.getBoolValue (presetFactoryKey, true) });
 }
 
 void AudioEngine::saveToneSettings()
@@ -65,6 +72,8 @@ void AudioEngine::saveToneSettings()
         settings.setValue (parameter->id, (double) parameter->get());
 
     settings.setValue (cabinetSourceKey, chain.getCabinet().getSourceDescription());
+    settings.setValue (presetNameKey, presets.getCurrent().name);
+    settings.setValue (presetFactoryKey, presets.getCurrent().isFactory);
 }
 
 float AudioEngine::readInputChannelPeak (int deviceChannelIndex) noexcept
@@ -225,6 +234,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
     const float* guitar = juce::isPositiveAndBelow (bufferIndex, numInputChannels)
                               ? inputChannelData[bufferIndex]
                               : nullptr;
+
+    tunerTap.push (guitar, numSamples);
 
     // The mono guitar signal goes to the first two outputs so it is heard in both ears.
     float* left = outputChannelData[0];

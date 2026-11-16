@@ -1,6 +1,8 @@
 #pragma once
 
+#include "Presets.h"
 #include "SignalChain.h"
+#include "Tuner.h"
 
 #include <array>
 
@@ -42,6 +44,8 @@ public:
 
     juce::AudioDeviceManager& getDeviceManager() noexcept   { return deviceManager; }
     SignalChain& getChain() noexcept                        { return chain; }
+    PresetManager& getPresets() noexcept                    { return presets; }
+    TunerTap& getTunerTap() noexcept                        { return tunerTap; }
 
     Status getStatus() const;
 
@@ -87,6 +91,8 @@ private:
     juce::PropertiesFile& settings;
     juce::AudioDeviceManager deviceManager;
     SignalChain chain;
+    PresetManager presets;
+    TunerTap tunerTap;
 
     std::atomic<int> inputChannel { 0 };
 

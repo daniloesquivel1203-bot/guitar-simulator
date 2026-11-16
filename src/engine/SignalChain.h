@@ -65,6 +65,10 @@ public:
     void setOutputGainDb (float db) noexcept;
     void setMuted (bool shouldBeMuted) noexcept   { muted.store (shouldBeMuted); }
 
+    /** A second, separate mute used by the tuner, so closing the tuner does not
+        undo a mute the user set themselves. */
+    void setTunerMuted (bool shouldBeMuted) noexcept   { tunerMuted.store (shouldBeMuted); }
+
     float getInputGainDb() const noexcept    { return inputGainDb.load(); }
     float getOutputGainDb() const noexcept   { return outputGainDb.load(); }
     bool isMuted() const noexcept            { return muted.load(); }
@@ -95,6 +99,7 @@ private:
     std::atomic<float> inputGainDb { 0.0f };
     std::atomic<float> outputGainDb { 0.0f };
     std::atomic<bool> muted { false };
+    std::atomic<bool> tunerMuted { false };
 
     std::atomic<float> inputPeak { 0.0f };
     std::atomic<float> outputPeak { 0.0f };

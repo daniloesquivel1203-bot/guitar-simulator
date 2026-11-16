@@ -3,10 +3,13 @@
 A standalone virtual guitar amp and pedalboard. Plug a guitar into any audio
 interface, and the app processes it live and sends it to your headphones.
 
-Status: milestone 4 of 6, pedals. The full signal chain is in place: noise
-gate, compressor, overdrive, distortion, an amp with three voicings, a speaker
-cabinet, EQ, and stereo chorus, delay and reverb, with a safety limiter on the
-output. Presets and the tuner arrive in the next milestone.
+Status: milestone 5 of 6, presets and tuner. The full signal chain is in
+place (noise gate, compressor, overdrive, distortion, amp, cabinet, EQ, chorus,
+delay, reverb), with factory presets, your own presets saved as files, and a
+built-in tuner. The last milestone is polish and a Windows installer.
+
+Your presets are plain JSON files in `%APPDATA%\Guitar Simulator\Presets` on
+Windows. The More button next to the preset list opens that folder.
 
 ## First run
 

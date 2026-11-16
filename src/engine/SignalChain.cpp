@@ -68,7 +68,7 @@ void SignalChain::reset()
     limiter.reset();
 
     inputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (inputGainDb.load()));
-    outputGain.setCurrentAndTargetValue (muted.load() ? 0.0f
+    outputGain.setCurrentAndTargetValue ((muted.load() || tunerMuted.load()) ? 0.0f
                                                       : juce::Decibels::decibelsToGain (outputGainDb.load()));
 }
 
@@ -85,7 +85,7 @@ void SignalChain::setOutputGainDb (float db) noexcept
 void SignalChain::process (const float* input, float* left, float* right, int numSamples) noexcept
 {
     inputGain.setTargetValue (juce::Decibels::decibelsToGain (inputGainDb.load()));
-    outputGain.setTargetValue (muted.load() ? 0.0f
+    outputGain.setTargetValue ((muted.load() || tunerMuted.load()) ? 0.0f
                                             : juce::Decibels::decibelsToGain (outputGainDb.load()));
 
     // A device may deliver more samples than it promised, so work in chunks

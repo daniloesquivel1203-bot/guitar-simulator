@@ -3,6 +3,7 @@
 #include "engine/AudioEngine.h"
 #include "ui/ChainStrip.h"
 #include "ui/LevelMeter.h"
+#include "ui/PresetBar.h"
 #include "ui/TonePanels.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -33,6 +34,8 @@ private:
     juce::Label title { {}, "Guitar Simulator" };
     juce::Label statusLine;
     juce::Label detailLine;
+    PresetBar presetBar;
+    juce::TextButton tunerButton { "Tuner" };
     juce::TextButton settingsButton { "Audio settings" };
 
     juce::Label inputHeading { {}, "INPUT" };
@@ -54,6 +57,7 @@ private:
 
     void buildChain();
     void selectBlock (int index);
+    void showTuner();
 
     std::vector<ChainBlock> chainBlocks;
     ChainStrip chainStrip;

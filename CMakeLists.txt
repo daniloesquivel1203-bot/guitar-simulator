@@ -29,12 +29,16 @@ target_sources(GuitarSimulator
         src/engine/AmpModel.cpp
         src/engine/AudioEngine.cpp
         src/engine/Cabinet.cpp
+        src/engine/Presets.cpp
         src/engine/SignalChain.cpp
+        src/engine/Tuner.cpp
         src/engine/effects/Drives.cpp
         src/engine/effects/Dynamics.cpp
         src/engine/effects/TimeEffects.cpp
         src/ui/AudioSettingsPanel.cpp
-        src/ui/TonePanels.cpp)
+        src/ui/PresetBar.cpp
+        src/ui/TonePanels.cpp
+        src/ui/TunerPanel.cpp)
 
 target_include_directories(GuitarSimulator PRIVATE src)
 
@@ -78,7 +82,9 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
         PRIVATE
             src/engine/AmpModel.cpp
             src/engine/Cabinet.cpp
+            src/engine/Presets.cpp
             src/engine/SignalChain.cpp
+            src/engine/Tuner.cpp
             src/engine/effects/Drives.cpp
             src/engine/effects/Dynamics.cpp
             src/engine/effects/TimeEffects.cpp
@@ -86,6 +92,8 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/CabinetTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
+            tests/PresetTests.cpp
+            tests/TunerTests.cpp
             tests/SafetyLimiterTests.cpp
             tests/SignalChainTests.cpp
             tests/TestSignals.h)

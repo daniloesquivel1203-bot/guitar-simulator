@@ -1,12 +1,13 @@
 #include "MainComponent.h"
 
 #include "ui/AudioSettingsPanel.h"
+#include "ui/TunerPanel.h"
 
 namespace
 {
 constexpr int meterRefreshHz = 30;
 constexpr int stripWidth = 120;
-constexpr int headerHeight = 72;
+constexpr int headerHeight = 100;
 
 const juce::Colour background { 0xff22282d };
 const juce::Colour panel { 0xff2b3238 };
@@ -15,8 +16,21 @@ const juce::Colour warning { 0xfff5a524 };
 }
 
 MainComponent::MainComponent (AudioEngine& engineToUse)
-    : engine (engineToUse)
+    : engine (engineToUse),
+      presetBar (engine.getPresets())
 {
+    // A loaded preset changes every knob, so rebuild whichever panel is showing.
+    presetBar.onPresetLoaded = [this]
+    {
+        if (chainStrip.getSelected() >= 0)
+            selectBlock (chainStrip.getSelected());
+    };
+    addAndMakeVisible (presetBar);
+
+    tunerButton.setTooltip ("Show the tuner.");
+    tunerButton.onClick = [this] { showTuner(); };
+    addAndMakeVisible (tunerButton);
+
     addAndMakeVisible (chainStrip);
     buildChain();
 
@@ -24,11 +38,12 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     addAndMakeVisible (title);
 
     statusLine.setFont (juce::FontOptions (14.0f));
-    statusLine.setJustificationType (juce::Justification::centredRight);
+    statusLine.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLine);
 
     detailLine.setFont (juce::FontOptions (13.0f));
     detailLine.setJustificationType (juce::Justification::centredRight);
+    detailLine.setMinimumHorizontalScale (0.8f);
     detailLine.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
     addAndMakeVisible (detailLine);
 
@@ -65,7 +80,7 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     refreshStatus();
     startTimerHz (meterRefreshHz);
 
-    setSize (1040, 520);
+    setSize (1040, 560);
 }
 
 MainComponent::~MainComponent()
@@ -100,10 +115,18 @@ void MainComponent::resized()
     auto area = getLocalBounds();
 
     auto header = area.removeFromTop (headerHeight).reduced (16, 12);
-    settingsButton.setBounds (header.removeFromRight (130).withSizeKeepingCentre (130, 30));
-    header.removeFromRight (16);
-    title.setBounds (header.removeFromLeft (220));
-    statusLine.setBounds (header.removeFromTop (header.getHeight() / 2));
+
+    // Top row: title, presets, tuner and settings. Bottom row: device status.
+    auto topRow = header.removeFromTop (32);
+    settingsButton.setBounds (topRow.removeFromRight (130));
+    topRow.removeFromRight (8);
+    tunerButton.setBounds (topRow.removeFromRight (80));
+    topRow.removeFromRight (24);
+    title.setBounds (topRow.removeFromLeft (200));
+    presetBar.setBounds (topRow.removeFromRight (juce::jmin (420, topRow.getWidth())));
+
+    header.removeFromTop (12);
+    statusLine.setBounds (header.removeFromLeft (header.getWidth() * 2 / 5));
     detailLine.setBounds (header);
 
     auto layoutStrip = [] (juce::Rectangle<int> strip, juce::Label& heading, LevelMeter& meter,
@@ -185,7 +208,24 @@ void MainComponent::selectBlock (int index)
         return;
 
     chainStrip.setSelected (index);
+    detailPanel.reset();   // closes the tuner first, if it was open
     detailPanel = chainBlocks[(size_t) index].makePanel();
+    addAndMakeVisible (*detailPanel);
+    resized();
+}
+
+void MainComponent::showTuner()
+{
+    // Pressing the button again goes back to the amp.
+    if (chainStrip.getSelected() < 0)
+    {
+        selectBlock (4);
+        return;
+    }
+
+    chainStrip.setSelected (-1);
+    detailPanel.reset();
+    detailPanel = std::make_unique<TunerPanel> (engine);
     addAndMakeVisible (*detailPanel);
     resized();
 }
