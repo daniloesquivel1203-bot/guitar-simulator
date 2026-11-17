@@ -51,8 +51,9 @@ void DrivePedal::process (float* samples, int numSamples) noexcept
         return;
 
     const auto toneHz = juce::jmin (getToneHz(), (float) (rate * 0.45));
+    const bool useTone = toneHz > 0.0f;
 
-    if (! juce::exactlyEqual (toneHz, lastToneHz))
+    if (useTone && ! juce::exactlyEqual (toneHz, lastToneHz))
     {
         lastToneHz = toneHz;
         toneFilter.coefficients = Coefficients::makeLowPass (rate, toneHz);
@@ -65,9 +66,14 @@ void DrivePedal::process (float* samples, int numSamples) noexcept
     auto oversampled = oversampling.processSamplesUp (block);
     shape (oversampled.getChannelPointer (0), (int) oversampled.getNumSamples());
     oversampling.processSamplesDown (block);
+    postShape (samples, numSamples);
+
+    if (useTone)
+        for (int i = 0; i < numSamples; ++i)
+            samples[i] = toneFilter.processSample (samples[i]);
 
     for (int i = 0; i < numSamples; ++i)
-        samples[i] = toneFilter.processSample (samples[i]) * level.getNextValue();
+        samples[i] *= level.getNextValue();
 }
 
 //==============================================================================

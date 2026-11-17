@@ -300,10 +300,23 @@ void MainComponent::showAddMenu (Pedalboard::Side side, juce::Rectangle<int> scr
     juce::PopupMenu menu;
     menu.addSectionHeader (side == Pedalboard::beforeAmp ? "Add a pedal before the amp" : "Add a pedal after the amp");
 
+    // One submenu per category, in the order the categories first appear.
     const auto& types = getPedalTypes();
+    juce::StringArray categories;
 
-    for (int i = 0; i < (int) types.size(); ++i)
-        menu.addItem (i + 1, types[(size_t) i].create()->name);
+    for (const auto& type : types)
+        categories.addIfNotAlreadyThere (type.category);
+
+    for (const auto& category : categories)
+    {
+        juce::PopupMenu submenu;
+
+        for (int i = 0; i < (int) types.size(); ++i)
+            if (category == types[(size_t) i].category)
+                submenu.addItem (i + 1, types[(size_t) i].create()->name);
+
+        menu.addSubMenu (category, submenu);
+    }
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
                         [safe = juce::Component::SafePointer<MainComponent> (this), side] (int result)

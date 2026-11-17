@@ -40,6 +40,12 @@ public:
         return a + (b - a) * fraction;
     }
 
+    /** Like read(), for a whole number of samples. Faster. */
+    float readWhole (int delaySamples) const noexcept
+    {
+        return buffer[(size_t) ((writeIndex - delaySamples) & mask)];
+    }
+
 private:
     std::vector<float> buffer = std::vector<float> (4);
     int mask = 3;
@@ -102,7 +108,7 @@ private:
 class Reverb final : public StereoEffect
 {
 public:
-    Reverb() : StereoEffect ("Reverb", "reverb.enabled") {}
+    Reverb() : StereoEffect ("Room Reverb", "reverb.enabled") {}
 
     Parameter size    { "reverb.size",    "Size",    0.0f, 10.0f,  5.0f };
     Parameter damping { "reverb.damping", "Damping", 0.0f, 10.0f,  5.0f };

@@ -86,4 +86,5 @@ private:
     juce::TextButton removeButton { "Remove" };
     juce::OwnedArray<ParameterKnob> knobs;
     juce::OwnedArray<ParameterToggle> switches;
+    juce::OwnedArray<ParameterChoice> choices;
 };

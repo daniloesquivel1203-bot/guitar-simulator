@@ -15,14 +15,58 @@ const std::vector<PedalType>& getPedalTypes()
 {
     static const std::vector<PedalType> types =
     {
-        { "gate",   "Gate",   maker<NoiseGate>() },
-        { "comp",   "Comp",   maker<Compressor>() },
-        { "od",     "Drive",  maker<Overdrive>() },
-        { "dist",   "Dist",   maker<Distortion>() },
-        { "eq",     "EQ",     maker<Equaliser>() },
-        { "chorus", "Chorus", maker<Chorus>() },
-        { "delay",  "Delay",  maker<Delay>() },
-        { "reverb", "Reverb", maker<Reverb>() },
+        // Dynamics and utility
+        { "gate",        "Gate",     "Dynamics",   maker<NoiseGate>() },
+        { "comp",        "Comp",     "Dynamics",   maker<Compressor>() },
+        { "opto",        "Opto",     "Dynamics",   maker<OptoCompressor>() },
+        { "boost",       "Boost",    "Dynamics",   maker<CleanBoost>() },
+        { "swell",       "Swell",    "Dynamics",   maker<AutoSwell>() },
+
+        // Overdrive, distortion and fuzz
+        { "treble",      "Treble",   "Drive",      maker<TrebleBooster>() },
+        { "blues",       "Blues",    "Drive",      maker<BluesDrive>() },
+        { "od",          "Drive",    "Drive",      maker<Overdrive>() },
+        { "dist",        "Dist",     "Drive",      maker<Distortion>() },
+        { "metal",       "Metal",    "Drive",      maker<MetalDistortion>() },
+        { "fuzz",        "Fuzz",     "Drive",      maker<VintageFuzz>() },
+        { "bigfuzz",     "Sustain",  "Drive",      maker<SustainFuzz>() },
+        { "octfuzz",     "OctFuzz",  "Drive",      maker<OctaveFuzz>() },
+        { "crusher",     "Crush",    "Drive",      maker<BitCrusher>() },
+
+        // Filters and EQ
+        { "eq",          "EQ",       "Filter",     maker<Equaliser>() },
+        { "geq",         "GEQ",      "Filter",     maker<GraphicEq>() },
+        { "wah",         "Wah",      "Filter",     maker<Wah>() },
+        { "envfilter",   "Env",      "Filter",     maker<EnvelopeFilter>() },
+        { "vowel",       "Vowel",    "Filter",     maker<VowelFilter>() },
+
+        // Modulation
+        { "chorus",      "Chorus",   "Modulation", maker<Chorus>() },
+        { "flanger",     "Flanger",  "Modulation", maker<Flanger>() },
+        { "phaser",      "Phaser",   "Modulation", maker<Phaser>() },
+        { "vibe",        "Vibe",     "Modulation", maker<Vibe>() },
+        { "vibrato",     "Vibrato",  "Modulation", maker<Vibrato>() },
+        { "trem",        "Trem",     "Modulation", maker<Tremolo>() },
+        { "rotary",      "Rotary",   "Modulation", maker<RotarySpeaker>() },
+        { "ringmod",     "Ring",     "Modulation", maker<RingModulator>() },
+
+        // Pitch
+        { "octave",      "Octave",   "Pitch",      maker<Octaver>() },
+        { "pitch",       "Pitch",    "Pitch",      maker<PitchShifter>() },
+        { "detune",      "Detune",   "Pitch",      maker<Detune>() },
+
+        // Delay
+        { "delay",       "Delay",    "Delay",      maker<Delay>() },
+        { "tape",        "Tape",     "Delay",      maker<TapeEcho>() },
+        { "analogdelay", "Analog",   "Delay",      maker<AnalogDelay>() },
+        { "reverse",     "Reverse",  "Delay",      maker<ReverseDelay>() },
+
+        // Reverb
+        { "reverb",      "Reverb",   "Reverb",     maker<Reverb>() },
+        { "spring",      "Spring",   "Reverb",     maker<SpringReverb>() },
+        { "plate",       "Plate",    "Reverb",     maker<PlateReverb>() },
+        { "hall",        "Hall",     "Reverb",     maker<HallReverb>() },
+        { "shimmer",     "Shimmer",  "Reverb",     maker<ShimmerReverb>() },
     };
 
     return types;

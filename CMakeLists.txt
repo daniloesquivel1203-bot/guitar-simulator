@@ -35,6 +35,13 @@ target_sources(GuitarSimulator
         src/engine/Tuner.cpp
         src/engine/effects/Drives.cpp
         src/engine/effects/Dynamics.cpp
+        src/engine/effects/Echoes.cpp
+        src/engine/effects/Filters.cpp
+        src/engine/effects/Modulation.cpp
+        src/engine/effects/MoreDrives.cpp
+        src/engine/effects/MoreDynamics.cpp
+        src/engine/effects/Pitch.cpp
+        src/engine/effects/Reverbs.cpp
         src/engine/effects/TimeEffects.cpp
         src/ui/AudioSettingsPanel.cpp
         src/ui/PresetBar.cpp
@@ -90,11 +97,19 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/Tuner.cpp
             src/engine/effects/Drives.cpp
             src/engine/effects/Dynamics.cpp
+            src/engine/effects/Echoes.cpp
+            src/engine/effects/Filters.cpp
+            src/engine/effects/Modulation.cpp
+            src/engine/effects/MoreDrives.cpp
+            src/engine/effects/MoreDynamics.cpp
+            src/engine/effects/Pitch.cpp
+            src/engine/effects/Reverbs.cpp
             src/engine/effects/TimeEffects.cpp
             tests/AmpModelTests.cpp
             tests/CabinetTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
+            tests/PedalLibraryTests.cpp
             tests/PedalboardTests.cpp
             tests/PerformanceTests.cpp
             tests/PresetTests.cpp
