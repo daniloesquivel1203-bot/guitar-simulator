@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "ui/AudioSettingsPanel.h"
+#include "ui/Theme.h"
 #include "ui/TunerPanel.h"
 
 namespace
@@ -9,10 +10,10 @@ constexpr int meterRefreshHz = 30;
 constexpr int stripWidth = 120;
 constexpr int headerHeight = 100;
 
-const juce::Colour background { 0xff22282d };
-const juce::Colour panel { 0xff2b3238 };
-const juce::Colour good { 0xff3ecf8e };
-const juce::Colour warning { 0xfff5a524 };
+const auto background = Theme::background;
+const auto panel = Theme::panel;
+const auto good = Theme::good;
+const auto warning = Theme::warning;
 }
 
 MainComponent::MainComponent (AudioEngine& engineToUse)
@@ -208,6 +209,7 @@ void MainComponent::selectBlock (int index)
         return;
 
     chainStrip.setSelected (index);
+    tunerButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();   // closes the tuner first, if it was open
     detailPanel = chainBlocks[(size_t) index].makePanel();
     addAndMakeVisible (*detailPanel);
@@ -224,6 +226,7 @@ void MainComponent::showTuner()
     }
 
     chainStrip.setSelected (-1);
+    tunerButton.setToggleState (true, juce::dontSendNotification);
     detailPanel.reset();
     detailPanel = std::make_unique<TunerPanel> (engine);
     addAndMakeVisible (*detailPanel);
@@ -243,6 +246,9 @@ void MainComponent::timerCallback()
 
     // Keeps the tile lights in step with switches changed in the panel below.
     chainStrip.repaint();
+
+    if (detailPanel != nullptr)
+        detailPanel->refreshDimming();
 
     // The CPU and dropout figures change continuously, so refresh them a few times a second.
     if (++ticksSinceStatusRefresh >= meterRefreshHz / 3)

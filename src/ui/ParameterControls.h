@@ -12,7 +12,8 @@ public:
         : parameter (parameterToUse)
     {
         slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 72, 18);
+        slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 84, 20);
+        slider.setTooltip (juce::String (parameter.name) + ". Drag up or down, scroll, or type a value. Double-click to reset.");
         slider.setRange (parameter.minValue, parameter.maxValue, parameter.step);
         slider.setTextValueSuffix (parameter.unit);
         slider.setDoubleClickReturnValue (true, parameter.defaultValue);
@@ -31,10 +32,14 @@ public:
         addAndMakeVisible (caption);
     }
 
+    /** The size a knob looks best at. Panels centre knobs of this size in their space. */
+    static constexpr int preferredWidth = 96;
+    static constexpr int preferredHeight = 134;
+
     void resized() override
     {
         auto area = getLocalBounds();
-        caption.setBounds (area.removeFromTop (16));
+        caption.setBounds (area.removeFromTop (18));
         slider.setBounds (area);
     }
 

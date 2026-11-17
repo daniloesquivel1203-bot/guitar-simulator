@@ -45,11 +45,7 @@ private:
     int chosenString = autoString;   // what the user picked
     int activeString = autoString;   // the string being measured right now
 
-    void writeDiagnostics (double sampleRate, std::optional<double> tracked);
-
     PitchTracker tracker;
-    std::unique_ptr<juce::FileOutputStream> diagnostics;   // only with the --tuner-log option
-    juce::int64 diagnosticsStart = 0;
     bool hasReading = false;
     bool inTune = false;
     double shownCents = 0.0;      // where the needle is

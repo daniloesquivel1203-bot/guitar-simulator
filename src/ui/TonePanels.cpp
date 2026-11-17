@@ -1,13 +1,10 @@
 #include "TonePanels.h"
 
-namespace
-{
-constexpr int knobWidth = 84;
-}
+#include "Theme.h"
 
 void TonePanel::paint (juce::Graphics& g)
 {
-    g.setColour (juce::Colour (0xff2b3238));
+    g.setColour (Theme::panel);
     g.fillRoundedRectangle (getLocalBounds().toFloat(), 8.0f);
 
     g.setColour (juce::Colours::white.withAlpha (0.7f));
@@ -15,9 +12,46 @@ void TonePanel::paint (juce::Graphics& g)
     g.drawText (title, getHeaderArea(), juce::Justification::centredLeft);
 }
 
+void TonePanel::refreshDimming()
+{
+    const bool shouldDim = powerSwitch != nullptr && ! powerSwitch->isOn();
+
+    if (shouldDim == dimmed)
+        return;
+
+    dimmed = shouldDim;
+
+    for (auto* child : getChildren())
+        if (dynamic_cast<ParameterKnob*> (child) != nullptr)
+            child->setAlpha (dimmed ? 0.4f : 1.0f);
+}
+
+void TonePanel::layoutKnobRow (juce::Rectangle<int> area, const std::vector<juce::Component*>& knobs,
+                               juce::Justification alignment)
+{
+    if (knobs.empty())
+        return;
+
+    const auto count = (int) knobs.size();
+    const auto width = juce::jmin ((int) ParameterKnob::preferredWidth, area.getWidth() / count);
+    const auto height = juce::jmin ((int) ParameterKnob::preferredHeight, area.getHeight());
+    const auto gap = count > 1 ? juce::jlimit (0, 36, (area.getWidth() - count * width) / (count - 1)) : 0;
+    const auto rowWidth = count * width + (count - 1) * gap;
+
+    auto x = alignment.testFlags (juce::Justification::left) ? area.getX()
+                                                             : area.getX() + (area.getWidth() - rowWidth) / 2;
+    const auto y = area.getY() + (area.getHeight() - height) / 2;
+
+    for (auto* knob : knobs)
+    {
+        knob->setBounds (x, y, width, height);
+        x += width + gap;
+    }
+}
+
 //==============================================================================
 AmpPanel::AmpPanel (AmpModel& ampToUse)
-    : TonePanel ("AMP"),
+    : TonePanel ("AMP", &ampToUse.enabled),
       amp (ampToUse),
       power (amp.enabled),
       gain (amp.gain), bass (amp.bass), mid (amp.mid),
@@ -39,19 +73,12 @@ void AmpPanel::resized()
     header.removeFromRight (12);
     voicing.setBounds (header.removeFromRight (140));
 
-    auto area = getContentArea();
-    const auto spacing = juce::jmax (0, (area.getWidth() - 6 * knobWidth) / 5);
-
-    for (auto* knob : { &gain, &bass, &mid, &treble, &presence, &master })
-    {
-        knob->setBounds (area.removeFromLeft (knobWidth));
-        area.removeFromLeft (spacing);
-    }
+    layoutKnobRow (getContentArea(), { &gain, &bass, &mid, &treble, &presence, &master });
 }
 
 //==============================================================================
 CabinetPanel::CabinetPanel (Cabinet& cabinetToUse)
-    : TonePanel ("CABINET"),
+    : TonePanel ("CABINET", &cabinetToUse.enabled),
       cabinet (cabinetToUse),
       power (cabinet.enabled),
       lowCut (cabinet.lowCut), highCut (cabinet.highCut)
@@ -78,10 +105,8 @@ void CabinetPanel::resized()
     choice.setBounds (header.removeFromRight (240));
 
     auto area = getContentArea();
-    lowCut.setBounds (area.removeFromLeft (knobWidth));
-    area.removeFromLeft (12);
-    highCut.setBounds (area.removeFromLeft (knobWidth));
-    area.removeFromLeft (20);
+    layoutKnobRow (area.removeFromLeft (2 * ParameterKnob::preferredWidth + 36), { &lowCut, &highCut });
+    area.removeFromLeft (28);
     message.setBounds (area);
 }
 
@@ -157,7 +182,7 @@ void CabinetPanel::chooseFile()
 
 //==============================================================================
 EffectPanel::EffectPanel (Effect& effect)
-    : TonePanel (juce::String (effect.name).toUpperCase()),
+    : TonePanel (juce::String (effect.name).toUpperCase(), &effect.enabled),
       power (effect.enabled)
 {
     addAndMakeVisible (power);
@@ -178,15 +203,20 @@ void EffectPanel::resized()
 
     auto area = getContentArea();
 
-    for (auto* knob : knobs)
+    // Switches sit in a column on the right, and the knobs are centred in what is left.
+    if (! switches.isEmpty())
     {
-        knob->setBounds (area.removeFromLeft (knobWidth));
-        area.removeFromLeft (20);
+        auto column = area.removeFromRight (150);
+        column = column.withSizeKeepingCentre (column.getWidth(), switches.size() * 32);
+
+        for (auto* toggle : switches)
+            toggle->setBounds (column.removeFromTop (32).reduced (0, 3));
     }
 
-    for (auto* toggle : switches)
-    {
-        toggle->setBounds (area.removeFromLeft (120).withSizeKeepingCentre (120, 26));
-        area.removeFromLeft (12);
-    }
+    std::vector<juce::Component*> row;
+
+    for (auto* knob : knobs)
+        row.push_back (knob);
+
+    layoutKnobRow (area, row);
 }

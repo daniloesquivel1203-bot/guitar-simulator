@@ -37,6 +37,7 @@ target_sources(GuitarSimulator
         src/engine/effects/TimeEffects.cpp
         src/ui/AudioSettingsPanel.cpp
         src/ui/PresetBar.cpp
+        src/ui/Theme.cpp
         src/ui/TonePanels.cpp
         src/ui/TunerPanel.cpp)
 
@@ -92,7 +93,8 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/CabinetTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
-            tests/PresetTests.cpp
+            tests/PerformanceTests.cpp
+        tests/PresetTests.cpp
             tests/TunerTests.cpp
             tests/SafetyLimiterTests.cpp
             tests/SignalChainTests.cpp
