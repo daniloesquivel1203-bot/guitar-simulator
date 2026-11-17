@@ -24,6 +24,40 @@ public:
     static std::optional<double> detect (const float* samples, int numSamples, double sampleRate);
 };
 
+/** Turns the detector's raw readings into one steady pitch for the display.
+
+    A raw reading wobbles by a few cents from one moment to the next, a plucked
+    string starts sharp before it settles, and as a note dies away the detector
+    can lock on to mains hum instead. The tracker skips the pick attack, stops
+    reading once the note has faded, takes the middle value of the last few
+    readings so a stray one is ignored, and then glides towards it.
+*/
+class PitchTracker
+{
+public:
+    /** Call at a steady rate with the most recent audio, oldest sample first.
+        Returns the settled pitch in Hz, or nothing when no note is sounding. */
+    std::optional<double> update (const float* samples, int numSamples, double sampleRate);
+
+    void reset();
+
+private:
+    static constexpr int historySize = 7;
+    static constexpr int readingsNeeded = 3;
+    static constexpr int attackUpdatesToSkip = 3;
+
+    std::array<double, historySize> history {};   // recent readings, as log2 of Hz
+    int historyCount = 0;
+    int historyIndex = 0;
+    int skipRemaining = 0;
+    double previousLevel = 0.0;
+    double notePeak = 0.0;
+    double noiseFloor = 0.0;
+    bool hasNoiseFloor = false;
+    double smoothed = 0.0;      // log2 of Hz
+    bool hasSmoothed = false;
+};
+
 /** A musical note and how far a pitch is from it. */
 struct TunerReading
 {
@@ -64,7 +98,7 @@ struct Tuning
 class TunerTap
 {
 public:
-    static constexpr int windowSize = 4096;
+    static constexpr int windowSize = 8192;   // 170 ms at 48 kHz: about 14 cycles of a low E
 
     void setActive (bool shouldBeActive) noexcept   { active.store (shouldBeActive); }
     bool isActive() const noexcept                  { return active.load(); }

@@ -6,7 +6,7 @@ interface, and the app processes it live and sends it to your headphones.
 Status: milestone 5 of 6, presets and tuner. The full signal chain is in
 place (noise gate, compressor, overdrive, distortion, amp, cabinet, EQ, chorus,
 delay, reverb), with factory presets, your own presets saved as files, and a
-built-in tuner. The last milestone is polish and a Windows installer.
+built-in tuner. The last milestone is polish.
 
 Your presets are plain JSON files in `%APPDATA%\Guitar Simulator\Presets` on
 Windows. The More button next to the preset list opens that folder.

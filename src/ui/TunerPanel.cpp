@@ -71,6 +71,7 @@ void TunerPanel::tuningChanged()
     tuningIndex = juce::jlimit (0, (int) Tuning::getAll().size() - 1, tuningPicker.getSelectedId() - 1);
     engine.setTunerTuning (tuningIndex);
     hasReading = false;
+    inTune = false;
     refreshStringButtons();
     repaint();
 }
@@ -81,6 +82,7 @@ void TunerPanel::chooseString (int string)
     activeString = string;
     engine.setTunerString (string);
     hasReading = false;
+    inTune = false;
     refreshStringButtons();
     repaint();
 }
@@ -123,17 +125,13 @@ void TunerPanel::timerCallback()
     engine.getTunerTap().copyLatest (window.data());
 
     const auto sampleRate = engine.getStatus().sampleRate;
-    const auto pitch = sampleRate > 0.0 ? PitchDetector::detect (window.data(), (int) window.size(), sampleRate)
+    const auto pitch = sampleRate > 0.0 ? tracker.update (window.data(), (int) window.size(), sampleRate)
                                         : std::nullopt;
 
     if (pitch.has_value())
     {
         const auto string = chosenString == autoString ? getTuning().closestString (*pitch) : chosenString;
-        const auto cents = Tuning::centsFrom (*pitch, getTuning().notes[(size_t) string]);
-
-        // Glide the needle while on one string, and jump when the string changes.
-        const bool sameString = hasReading && string == activeString;
-        shownCents = sameString ? shownCents + 0.5 * (cents - shownCents) : cents;
+        const bool newNote = ! hasReading || string != activeString;
 
         if (string != activeString)
         {
@@ -141,13 +139,25 @@ void TunerPanel::timerCallback()
             refreshStringButtons();
         }
 
-        hz = *pitch;
+        // The tracker has already steadied the pitch, so the needle shows it directly.
+        shownCents = Tuning::centsFrom (*pitch, getTuning().notes[(size_t) string]);
+        inTune = std::abs (shownCents) <= (inTune && ! newNote ? outOfTuneCents : inTuneCents);
+
+        if (newNote || ++updatesSinceText >= textEveryUpdates)
+        {
+            textCents = shownCents;
+            textHz = *pitch;
+            updatesSinceText = 0;
+        }
+
         hasReading = true;
         updatesSinceReading = 0;
     }
     else if (hasReading && ++updatesSinceReading > holdUpdates)
     {
+        // Keep the last reading on screen for a second after the note fades.
         hasReading = false;
+        inTune = false;
     }
 
     repaint();
@@ -161,7 +171,6 @@ void TunerPanel::paint (juce::Graphics& g)
     area.removeFromBottom (44 + 8);   // the string buttons
 
     const bool hasTarget = activeString != autoString;
-    const bool inTune = hasReading && std::abs (shownCents) <= inTuneCents;
     const auto accent = inTune ? good : off;
 
     // The note this string should be tuned to.
@@ -213,17 +222,17 @@ void TunerPanel::paint (juce::Graphics& g)
 
     if (hasReading)
     {
-        const auto cents = juce::roundToInt (shownCents);
+        const auto cents = juce::roundToInt (textCents);
 
         if (inTune)
             advice = "In tune";
-        else if (std::abs (shownCents) > scaleCents)
-            advice = shownCents < 0.0 ? "Too low. Tighten the string." : "Too high. Loosen the string.";
+        else if (std::abs (textCents) > scaleCents)
+            advice = textCents < 0.0 ? "Too low. Tighten the string." : "Too high. Loosen the string.";
         else
             advice = cents < 0 ? juce::String (-cents) + " cents flat. Tighten the string."
                                : juce::String (cents) + " cents sharp. Loosen the string.";
 
-        advice << "    " << juce::String (hz, 1) << " Hz";
+        advice << "    " << juce::String (textHz, 1) << " Hz";
     }
 
     g.setFont (juce::FontOptions (15.0f));

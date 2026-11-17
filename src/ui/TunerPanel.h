@@ -21,9 +21,11 @@ public:
 private:
     static constexpr int numStrings = 6;
     static constexpr int autoString = -1;
-    static constexpr double inTuneCents = 3.0;
+    static constexpr double inTuneCents = 5.0;       // turns green inside this
+    static constexpr double outOfTuneCents = 6.5;    // and stays green until past this, so it does not flicker
+    static constexpr int textEveryUpdates = 5;       // the numbers change four times a second
     static constexpr double scaleCents = 50.0;
-    static constexpr int holdUpdates = 8;   // keep the last reading briefly as a note fades
+    static constexpr int holdUpdates = 20;   // keep the last reading briefly as a note fades
 
     void timerCallback() override;
 
@@ -43,8 +45,12 @@ private:
     int chosenString = autoString;   // what the user picked
     int activeString = autoString;   // the string being measured right now
 
+    PitchTracker tracker;
     bool hasReading = false;
-    double hz = 0.0;
-    double shownCents = 0.0;
+    bool inTune = false;
+    double shownCents = 0.0;      // where the needle is
+    double textCents = 0.0;       // the numbers under it, which change less often
+    double textHz = 0.0;
     int updatesSinceReading = 0;
+    int updatesSinceText = 0;
 };

@@ -1,5 +1,6 @@
 #include "Tuner.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -97,6 +98,94 @@ std::optional<double> PitchDetector::detect (const float* samples, int numSample
     }
 
     return {};
+}
+
+void PitchTracker::reset()
+{
+    historyCount = 0;
+    historyIndex = 0;
+    skipRemaining = 0;
+    previousLevel = 0.0;
+    notePeak = 0.0;
+    noiseFloor = 0.0;
+    hasNoiseFloor = false;
+    hasSmoothed = false;
+}
+
+std::optional<double> PitchTracker::update (const float* samples, int numSamples, double sampleRate)
+{
+    constexpr double quietestNote = 0.003;       // about -50 dB: below this is hum and hiss
+    constexpr double aboveNoise = 4.0;           // a note must stand this far clear of the background hum
+    constexpr double noiseRise = 1.002;          // the background estimate creeps up slowly and drops at once
+    constexpr double fadedRatio = 0.06;          // a note this far below its loudest point has died away
+    constexpr double peakDecay = 0.985;          // lets a quieter note be picked up after a loud one
+    constexpr double attackRatio = 1.8;          // a jump in level this big is a new pick stroke
+    constexpr double newNoteOctaves = 30.0 / 1200.0;
+
+    if (samples == nullptr || numSamples <= 0)
+        return {};
+
+    // Loudness of the most recent slice only, so a pick stroke shows up at once.
+    const auto recent = juce::jmin (numSamples, 1024);
+    double energy = 0.0;
+
+    for (int i = numSamples - recent; i < numSamples; ++i)
+        energy += (double) samples[i] * samples[i];
+
+    const auto level = std::sqrt (energy / recent);
+    const bool attack = level > attackRatio * previousLevel && level > quietestNote;
+    previousLevel = level;
+    notePeak = juce::jmax (level, notePeak * peakDecay);
+    noiseFloor = hasNoiseFloor ? juce::jmin (level, noiseFloor * noiseRise) : level;
+    hasNoiseFloor = true;
+
+    if (attack)
+    {
+        // A string is sharp for a moment after it is picked. Start again and wait for it to settle.
+        historyCount = 0;
+        skipRemaining = attackUpdatesToSkip;
+    }
+
+    if (level < quietestNote || level < fadedRatio * notePeak || level < aboveNoise * noiseFloor)
+    {
+        historyCount = 0;
+        hasSmoothed = false;
+        return {};
+    }
+
+    if (skipRemaining > 0)
+    {
+        --skipRemaining;
+        return hasSmoothed ? std::optional<double> (std::exp2 (smoothed)) : std::nullopt;
+    }
+
+    if (const auto pitch = PitchDetector::detect (samples, numSamples, sampleRate))
+    {
+        history[(size_t) historyIndex] = std::log2 (*pitch);
+        historyIndex = (historyIndex + 1) % historySize;
+        historyCount = juce::jmin (historyCount + 1, (int) historySize);
+    }
+
+    if (historyCount < readingsNeeded)
+        return hasSmoothed ? std::optional<double> (std::exp2 (smoothed)) : std::nullopt;
+
+    // The middle value of the recent readings ignores the odd stray one.
+    std::array<double, historySize> sorted {};
+
+    for (int i = 0; i < historyCount; ++i)
+        sorted[(size_t) i] = history[(size_t) ((historyIndex - 1 - i + 2 * historySize) % historySize)];
+
+    std::sort (sorted.begin(), sorted.begin() + historyCount);
+    const auto median = sorted[(size_t) (historyCount / 2)];
+
+    // Jump to a new note, but glide gently while on the same one.
+    if (! hasSmoothed || std::abs (median - smoothed) > newNoteOctaves)
+        smoothed = median;
+    else
+        smoothed += 0.2 * (median - smoothed);
+
+    hasSmoothed = true;
+    return std::exp2 (smoothed);
 }
 
 TunerReading TunerReading::fromHz (double hz)

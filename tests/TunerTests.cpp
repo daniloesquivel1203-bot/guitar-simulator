@@ -200,3 +200,108 @@ TEST_CASE ("the tuner picks the string closest to the note being played")
     REQUIRE (standard.closestString (40.0) == 0);
     REQUIRE (standard.closestString (900.0) == 5);
 }
+
+namespace
+{
+/** A plucked string as a pickup hears it: slightly sharp at the pick, overtones
+    that are a little out of tune and die away at different speeds, all over
+    mains hum and hiss. */
+std::vector<float> pluckedString (double hz, double sampleRate, double seconds, double level, unsigned seed)
+{
+    std::mt19937 random (seed);
+    std::normal_distribution<double> hiss (0.0, 0.0015);
+    std::vector<float> out ((size_t) (sampleRate * seconds));
+
+    for (size_t i = 0; i < out.size(); ++i)
+    {
+        const auto t = (double) i / sampleRate;
+        double sample = 0.0;
+
+        for (int k = 1; k <= 10; ++k)
+        {
+            const auto partial = hz * k * std::sqrt (1.0 + 2.0e-4 * k * k) * (1.0 + 0.003 * std::exp (-6.0 * t));
+            const auto loudness = (k == 2 ? 1.0 : 0.6 / k) * std::exp (-t * (0.6 + 0.5 * k));
+            sample += loudness * std::sin (juce::MathConstants<double>::twoPi * partial * t + 0.9 * k);
+        }
+
+        out[i] = (float) (level * sample + hiss (random)
+                          + 0.002 * std::sin (juce::MathConstants<double>::twoPi * 60.0 * t));
+    }
+
+    return out;
+}
+
+/** Runs the tracker over a signal the way the tuner does, 20 times a second. */
+std::vector<std::optional<double>> track (const std::vector<float>& signal, double sampleRate)
+{
+    PitchTracker tracker;
+    std::vector<std::optional<double>> readings;
+
+    for (auto end = TunerTap::windowSize; end < (int) signal.size(); end += (int) (sampleRate / 20.0))
+        readings.push_back (tracker.update (signal.data() + end - TunerTap::windowSize, TunerTap::windowSize, sampleRate));
+
+    return readings;
+}
+}
+
+TEST_CASE ("the tuner reading settles on a plucked string instead of jumping around")
+{
+    const auto hz = GENERATE (61.74, 82.41, 110.0, 146.83, 196.0, 246.94, 329.63);
+    const auto sampleRate = 48000.0;
+
+    // A second of background noise, then one pluck left to ring out.
+    auto signal = pluckedString (hz, sampleRate, 1.0, 0.0, 1);
+    const auto note = pluckedString (hz, sampleRate, 5.0, 0.15, 2);
+    signal.insert (signal.end(), note.begin(), note.end());
+
+    const auto readings = track (signal, sampleRate);
+
+    int count = 0;
+    std::optional<double> previous;
+
+    for (size_t i = 0; i < readings.size(); ++i)
+    {
+        if (i < 20)
+        {
+            // Hum and hiss alone must not show a note.
+            REQUIRE_FALSE (readings[i].has_value());
+            continue;
+        }
+
+        if (! readings[i].has_value())
+            continue;
+
+        ++count;
+        const auto cents = centsBetween (*readings[i], hz);
+
+        // Never the hum, never the wrong octave, and close to the true note.
+        REQUIRE (std::abs (cents) < 12.0);
+
+        // The needle glides: it never jerks by more than a cent between updates.
+        if (previous.has_value())
+            REQUIRE (std::abs (centsBetween (*readings[i], *previous)) < 1.0);
+
+        previous = readings[i];
+    }
+
+    // It kept reading for more than a second.
+    REQUIRE (count > 20);
+}
+
+TEST_CASE ("the tuner follows a string as it is tuned up")
+{
+    const auto sampleRate = 48000.0;
+    auto signal = pluckedString (100.0, sampleRate, 3.0, 0.15, 3);
+    const auto second = pluckedString (110.0, sampleRate, 3.0, 0.15, 4);
+    signal.insert (signal.end(), second.begin(), second.end());
+
+    const auto readings = track (signal, sampleRate);
+    std::optional<double> last;
+
+    for (const auto& reading : readings)
+        if (reading.has_value())
+            last = reading;
+
+    REQUIRE (last.has_value());
+    REQUIRE (std::abs (centsBetween (*last, 110.0)) < 12.0);
+}
