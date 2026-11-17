@@ -50,6 +50,20 @@ TunerPanel::TunerPanel (AudioEngine& engineToUse)
     activeString = chosenString;
     refreshStringButtons();
 
+    // Starting the app with --tuner-log writes every reading to a file, for
+    // working out why the tuner disagrees with another one.
+    if (juce::JUCEApplicationBase::getCommandLineParameters().contains ("--tuner-log"))
+    {
+        const auto file = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                              .getChildFile ("Guitar Simulator").getChildFile ("tuner-log.csv");
+        file.deleteFile();
+        diagnostics = file.createOutputStream();
+        diagnosticsStart = juce::Time::currentTimeMillis();
+
+        if (diagnostics != nullptr)
+            *diagnostics << "ms,level,raw_hz_short_window,raw_hz_full_window,shown_hz\n";
+    }
+
     engine.getChain().setTunerMuted (true);
     engine.getTunerTap().setActive (true);
     startTimerHz (20);
@@ -128,6 +142,9 @@ void TunerPanel::timerCallback()
     const auto pitch = sampleRate > 0.0 ? tracker.update (window.data(), (int) window.size(), sampleRate)
                                         : std::nullopt;
 
+    if (diagnostics != nullptr && sampleRate > 0.0)
+        writeDiagnostics (sampleRate, pitch);
+
     if (pitch.has_value())
     {
         const auto string = chosenString == autoString ? getTuning().closestString (*pitch) : chosenString;
@@ -161,6 +178,25 @@ void TunerPanel::timerCallback()
     }
 
     repaint();
+}
+
+void TunerPanel::writeDiagnostics (double sampleRate, std::optional<double> tracked)
+{
+    const auto size = (int) window.size();
+    const auto half = size / 2;
+    double energy = 0.0;
+
+    for (int i = size - 1024; i < size; ++i)
+        energy += (double) window[(size_t) i] * window[(size_t) i];
+
+    const auto text = [] (std::optional<double> hz) { return hz.has_value() ? juce::String (*hz, 3) : juce::String(); };
+
+    *diagnostics << (juce::Time::currentTimeMillis() - diagnosticsStart) << ','
+                 << juce::String (std::sqrt (energy / 1024.0), 5) << ','
+                 << text (PitchDetector::detect (window.data() + half, half, sampleRate)) << ','
+                 << text (PitchDetector::detect (window.data(), size, sampleRate)) << ','
+                 << text (tracked) << '\n';
+    diagnostics->flush();
 }
 
 void TunerPanel::paint (juce::Graphics& g)
