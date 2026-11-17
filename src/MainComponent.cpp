@@ -20,11 +20,12 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     : engine (engineToUse),
       presetBar (engine.getPresets())
 {
-    // A loaded preset changes every knob, so rebuild whichever panel is showing.
+    // A loaded preset replaces the pedals, so rebuild the strip and the panel.
     presetBar.onPresetLoaded = [this]
     {
-        if (chainStrip.getSelected() >= 0)
-            selectBlock (chainStrip.getSelected());
+        // Every knob may have changed, so the panel is rebuilt too.
+        panelBlock = nullptr;
+        rebuildChain (chainStrip.getSelected());
     };
     addAndMakeVisible (presetBar);
 
@@ -32,8 +33,24 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     tunerButton.onClick = [this] { showTuner(); };
     addAndMakeVisible (tunerButton);
 
+    chainStrip.onSelect = [this] (int index) { selectBlock (index); };
+    chainStrip.onToggle = [this] (int index)
+    {
+        if (index == chainStrip.getSelected() && detailPanel != nullptr)
+            detailPanel->refreshPower();
+    };
+    chainStrip.onAdd = [this] (Pedalboard::Side side, juce::Rectangle<int> area) { showAddMenu (side, area); };
+    chainStrip.onPedalMenu = [this] (int tile) { showPedalMenu (tile); };
+    chainStrip.onMove = [this] (Pedalboard::Side fromSide, int fromIndex, Pedalboard::Side toSide, int toIndex)
+    {
+        if (engine.getChain().getBoard().move (fromSide, fromIndex, toSide, toIndex))
+            rebuildChain();
+    };
     addAndMakeVisible (chainStrip);
-    buildChain();
+
+    // Start on the amp, which is where most of the tone is set.
+    selectedBlock = &engine.getChain().getAmp().enabled;
+    rebuildChain();
 
     title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
     addAndMakeVisible (title);
@@ -161,73 +178,220 @@ void MainComponent::resized()
         detailPanel->setBounds (area);
 }
 
-void MainComponent::buildChain()
+void MainComponent::rebuildChain (int fallbackIndex)
 {
     auto& chain = engine.getChain();
+    auto& board = chain.getBoard();
 
-    const auto addEffect = [this] (const char* shortName, Effect& effect)
+    std::vector<ChainStrip::Tile> tiles;
+    panelMakers.clear();
+    tilePedals.clear();
+
+    const auto addSide = [&] (Pedalboard::Side side)
     {
-        chainBlocks.push_back ({ shortName, &effect.enabled,
-                                 [&effect] { return std::make_unique<EffectPanel> (effect); } });
+        const auto& pedals = board.getPedals (side);
+
+        for (int i = 0; i < (int) pedals.size(); ++i)
+        {
+            auto pedal = pedals[(size_t) i];
+            tiles.push_back ({ ChainStrip::Kind::pedal, side, i, pedal->type.shortName, &pedal->getEffect().enabled });
+            tilePedals.push_back (pedal);
+
+            // The panel's Remove button works on whichever position the pedal has by then.
+            panelMakers.push_back ([this, pedal]
+            {
+                return std::make_unique<EffectPanel> (pedal->getEffect(), [this, weak = std::weak_ptr<Pedal> (pedal)]
+                {
+                    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this), weak]
+                    {
+                        auto locked = weak.lock();
+
+                        if (safe == nullptr || locked == nullptr)
+                            return;
+
+                        for (auto s : { Pedalboard::beforeAmp, Pedalboard::afterAmp })
+                        {
+                            const auto& list = safe->engine.getChain().getBoard().getPedals (s);
+
+                            for (int index = 0; index < (int) list.size(); ++index)
+                                if (list[(size_t) index] == locked)
+                                    return safe->removePedal (s, index);
+                        }
+                    });
+                });
+            });
+        }
+
+        if ((int) pedals.size() < Pedalboard::maxPedalsPerSide)
+        {
+            tiles.push_back ({ ChainStrip::Kind::add, side, -1, "+", nullptr });
+            panelMakers.push_back ({});
+            tilePedals.push_back ({});
+        }
     };
 
-    addEffect ("Gate", chain.getNoiseGate());
-    addEffect ("Comp", chain.getCompressor());
-    addEffect ("Drive", chain.getOverdrive());
-    addEffect ("Dist", chain.getDistortion());
+    addSide (Pedalboard::beforeAmp);
 
-    chainBlocks.push_back ({ "Amp", &chain.getAmp().enabled,
-                             [&chain] { return std::make_unique<AmpPanel> (chain.getAmp()); } });
-    chainBlocks.push_back ({ "Cab", &chain.getCabinet().enabled,
-                             [&chain] { return std::make_unique<CabinetPanel> (chain.getCabinet()); } });
+    tiles.push_back ({ ChainStrip::Kind::amp, Pedalboard::beforeAmp, -1, "Amp", &chain.getAmp().enabled });
+    panelMakers.push_back ([&chain] { return std::make_unique<AmpPanel> (chain.getAmp()); });
+    tilePedals.push_back ({});
+    tiles.push_back ({ ChainStrip::Kind::cabinet, Pedalboard::afterAmp, -1, "Cab", &chain.getCabinet().enabled });
+    panelMakers.push_back ([&chain] { return std::make_unique<CabinetPanel> (chain.getCabinet()); });
+    tilePedals.push_back ({});
 
-    addEffect ("EQ", chain.getEqualiser());
-    addEffect ("Chorus", chain.getChorus());
-    addEffect ("Delay", chain.getDelay());
-    addEffect ("Reverb", chain.getReverb());
+    addSide (Pedalboard::afterAmp);
 
-    std::vector<ChainStrip::Block> tiles;
+    chainStrip.setTiles (tiles);
 
-    for (const auto& block : chainBlocks)
-        tiles.push_back ({ block.shortName, block.enabled });
-
-    chainStrip.setBlocks (std::move (tiles));
-    chainStrip.onSelect = [this] (int index) { selectBlock (index); };
-    chainStrip.onToggle = [this] (int index)
+    if (showingTuner)
     {
-        if (index == chainStrip.getSelected() && detailPanel != nullptr)
-            detailPanel->refreshPower();
-    };
+        chainStrip.setSelected (-1);
+        return;
+    }
 
-    // Start on the amp, which is where most of the tone is set.
-    selectBlock (4);
+    for (int i = 0; i < (int) tiles.size(); ++i)
+    {
+        if (selectedBlock != nullptr && tiles[(size_t) i].enabled == selectedBlock)
+        {
+            // The same block's panel can stay; only the highlight moves.
+            if (panelBlock == selectedBlock && detailPanel != nullptr)
+                chainStrip.setSelected (i);
+            else
+                selectBlock (i);
+
+            return;
+        }
+    }
+
+    if (juce::isPositiveAndBelow (fallbackIndex, (int) tiles.size())
+        && tiles[(size_t) fallbackIndex].kind != ChainStrip::Kind::add)
+        selectBlock (fallbackIndex);
+    else
+        selectAmp();
+}
+
+void MainComponent::selectAmp()
+{
+    const auto& tiles = chainStrip.getTiles();
+
+    for (int i = 0; i < (int) tiles.size(); ++i)
+        if (tiles[(size_t) i].kind == ChainStrip::Kind::amp)
+            return selectBlock (i);
 }
 
 void MainComponent::selectBlock (int index)
 {
-    if (! juce::isPositiveAndBelow (index, (int) chainBlocks.size()))
+    if (! juce::isPositiveAndBelow (index, (int) panelMakers.size()) || panelMakers[(size_t) index] == nullptr)
         return;
 
     chainStrip.setSelected (index);
+    selectedBlock = panelBlock = chainStrip.getTiles()[(size_t) index].enabled;
+    showingTuner = false;
     tunerButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();   // closes the tuner first, if it was open
-    detailPanel = chainBlocks[(size_t) index].makePanel();
+    panelPedal = tilePedals[(size_t) index];
+    detailPanel = panelMakers[(size_t) index]();
     addAndMakeVisible (*detailPanel);
     resized();
+}
+
+void MainComponent::showAddMenu (Pedalboard::Side side, juce::Rectangle<int> screenArea)
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader (side == Pedalboard::beforeAmp ? "Add a pedal before the amp" : "Add a pedal after the amp");
+
+    const auto& types = getPedalTypes();
+
+    for (int i = 0; i < (int) types.size(); ++i)
+        menu.addItem (i + 1, types[(size_t) i].create()->name);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
+                        [safe = juce::Component::SafePointer<MainComponent> (this), side] (int result)
+                        {
+                            if (safe == nullptr || result <= 0)
+                                return;
+
+                            if (auto pedal = safe->engine.getChain().getBoard().add (side, getPedalTypes()[(size_t) result - 1]))
+                            {
+                                // Open the new pedal's panel, even if the tuner was showing.
+                                safe->selectedBlock = &pedal->getEffect().enabled;
+                                safe->showingTuner = false;
+                                safe->rebuildChain();
+                            }
+                        });
+}
+
+void MainComponent::showPedalMenu (int tileIndex)
+{
+    const auto tile = chainStrip.getTiles()[(size_t) tileIndex];
+    const auto otherSide = tile.side == Pedalboard::beforeAmp ? Pedalboard::afterAmp : Pedalboard::beforeAmp;
+    const bool otherSideFull = (int) engine.getChain().getBoard().getPedals (otherSide).size() >= Pedalboard::maxPedalsPerSide;
+
+    juce::PopupMenu menu;
+    menu.addItem (1, tile.side == Pedalboard::beforeAmp ? "Move after the amp" : "Move before the amp", ! otherSideFull);
+    menu.addSeparator();
+    menu.addItem (2, "Remove " + tile.shortName);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (chainStrip),
+                        [safe = juce::Component::SafePointer<MainComponent> (this), tile, otherSide] (int result)
+                        {
+                            if (safe == nullptr)
+                                return;
+
+                            auto& board = safe->engine.getChain().getBoard();
+
+                            if (result == 1)
+                            {
+                                // Before the amp it goes last; after the amp it goes first, so it stays next to the amp.
+                                const auto toIndex = otherSide == Pedalboard::beforeAmp ? (int) board.getPedals (otherSide).size() : 0;
+
+                                if (board.move (tile.side, tile.index, otherSide, toIndex))
+                                    safe->rebuildChain();
+                            }
+                            else if (result == 2)
+                            {
+                                safe->removePedal (tile.side, tile.index);
+                            }
+                        });
+}
+
+void MainComponent::removePedal (Pedalboard::Side side, int index)
+{
+    auto& board = engine.getChain().getBoard();
+    const auto& pedals = board.getPedals (side);
+
+    if (! juce::isPositiveAndBelow (index, (int) pedals.size()))
+        return;
+
+    const auto wasSelected = &pedals[(size_t) index]->getEffect().enabled == selectedBlock;
+    const auto tileIndex = chainStrip.getSelected();
+    board.remove (side, index);
+
+    // The removed pedal's panel holds references to it, so close it first.
+    if (wasSelected)
+    {
+        selectedBlock = panelBlock = nullptr;
+        detailPanel.reset();
+    }
+
+    rebuildChain (wasSelected ? tileIndex : -1);
 }
 
 void MainComponent::showTuner()
 {
     // Pressing the button again goes back to the amp.
-    if (chainStrip.getSelected() < 0)
+    if (showingTuner)
     {
-        selectBlock (4);
+        selectAmp();
         return;
     }
 
     chainStrip.setSelected (-1);
+    selectedBlock = panelBlock = nullptr;
+    showingTuner = true;
     tunerButton.setToggleState (true, juce::dontSendNotification);
     detailPanel.reset();
+    panelPedal.reset();
     detailPanel = std::make_unique<TunerPanel> (engine);
     addAndMakeVisible (*detailPanel);
     resized();

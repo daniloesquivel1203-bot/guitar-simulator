@@ -6,8 +6,8 @@
 
 /** Saving and loading complete sounds.
 
-    A preset holds the value of every knob and switch in the chain plus the
-    chosen cabinet. It does not hold the input trim or output level, which
+    A preset holds which pedals are on the board and in what order, the value
+    of every knob and switch, and the chosen cabinet. It does not hold the input trim or output level, which
     belong to your guitar and headphones and should not jump when you change
     sounds.
 
@@ -33,7 +33,8 @@ public:
     static juce::var capture (SignalChain& chain, const juce::String& name);
 
     /** Applies a captured state. Parameters missing from it go to their defaults
-        and unknown ones are ignored, so old and new preset files both load.
+        and unknown ones are ignored, so old and new preset files both load. A
+        version 1 preset, which has no board, gets the fixed V1 pedal order.
         Returns false if the value is not a preset at all. */
     static bool apply (SignalChain& chain, const juce::var& preset);
 

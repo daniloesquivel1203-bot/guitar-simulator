@@ -6,6 +6,11 @@ const juce::Identifier nameKey { "name" };
 const juce::Identifier formatKey { "format" };
 const juce::Identifier parametersKey { "parameters" };
 const juce::Identifier cabinetKey { "cabinet" };
+const juce::Identifier versionKey { "version" };
+const juce::Identifier boardKey { "board" };
+const juce::Identifier typeKey { "type" };
+const std::array<juce::Identifier, 2> sideKeys { juce::Identifier ("beforeAmp"), juce::Identifier ("afterAmp") };
+constexpr int currentVersion = 2;
 
 const char* const formatName = "guitar-simulator-preset";
 const char* const fileExtension = ".json";
@@ -75,6 +80,40 @@ const std::initializer_list<FactoryPreset>& getFactoryPresets()
     return presets;
 }
 
+/** Sets each parameter from a JSON object of id: value pairs. Missing or
+    unusable values go to the parameter's default. */
+void applyValues (const std::vector<Parameter*>& parameters, const juce::var& values)
+{
+    for (auto* parameter : parameters)
+    {
+        const auto value = values[juce::Identifier (parameter->id)];
+        const bool usable = (value.isDouble() || value.isInt() || value.isInt64() || value.isBool())
+                            && std::isfinite ((double) value);
+
+        parameter->set (usable ? (float) (double) value : parameter->defaultValue);
+    }
+}
+
+juce::var captureValues (const std::vector<Parameter*>& parameters)
+{
+    auto values = std::make_unique<juce::DynamicObject>();
+
+    for (auto* parameter : parameters)
+        values->setProperty (parameter->id, parameter->get());
+
+    return juce::var (values.release());
+}
+
+std::vector<Parameter*> getAmpAndCabinetParameters (SignalChain& chain)
+{
+    std::vector<Parameter*> parameters;
+
+    for (auto* parameter : chain.getAmp().getParameters())       parameters.push_back (parameter);
+    for (auto* parameter : chain.getCabinet().getParameters())   parameters.push_back (parameter);
+
+    return parameters;
+}
+
 juce::var makeFactoryVar (const FactoryPreset& preset)
 {
     auto parameters = std::make_unique<juce::DynamicObject>();
@@ -99,16 +138,30 @@ PresetManager::PresetManager (SignalChain& chainToUse, juce::File userFolderToUs
 
 juce::var PresetManager::capture (SignalChain& chain, const juce::String& name)
 {
-    auto parameters = std::make_unique<juce::DynamicObject>();
+    auto board = std::make_unique<juce::DynamicObject>();
 
-    for (auto* parameter : chain.getAllParameters())
-        parameters->setProperty (parameter->id, parameter->get());
+    for (auto side : { Pedalboard::beforeAmp, Pedalboard::afterAmp })
+    {
+        juce::Array<juce::var> pedals;
+
+        for (auto& pedal : chain.getBoard().getPedals (side))
+        {
+            auto entry = std::make_unique<juce::DynamicObject>();
+            entry->setProperty (typeKey, pedal->type.key);
+            entry->setProperty (parametersKey, captureValues (pedal->getParameters()));
+            pedals.add (juce::var (entry.release()));
+        }
+
+        board->setProperty (sideKeys[(size_t) side], pedals);
+    }
 
     auto root = std::make_unique<juce::DynamicObject>();
     root->setProperty (formatKey, formatName);
+    root->setProperty (versionKey, currentVersion);
     root->setProperty (nameKey, name);
-    root->setProperty (parametersKey, juce::var (parameters.release()));
+    root->setProperty (parametersKey, captureValues (getAmpAndCabinetParameters (chain)));
     root->setProperty (cabinetKey, chain.getCabinet().getSourceDescription());
+    root->setProperty (boardKey, juce::var (board.release()));
     return juce::var (root.release());
 }
 
@@ -118,16 +171,44 @@ bool PresetManager::apply (SignalChain& chain, const juce::var& preset)
         return false;
 
     const auto& values = preset[parametersKey];
+    applyValues (getAmpAndCabinetParameters (chain), values);
 
-    for (auto* parameter : chain.getAllParameters())
+    Pedalboard::PedalList before, after;
+    const auto& board = preset[boardKey];
+
+    if (board.isObject())
     {
-        const auto value = values[juce::Identifier (parameter->id)];
-        const bool usable = (value.isDouble() || value.isInt() || value.isInt64() || value.isBool())
-                            && std::isfinite ((double) value);
+        // Version 2: each side lists its pedals in order, each with its own settings.
+        for (auto side : { Pedalboard::beforeAmp, Pedalboard::afterAmp })
+        {
+            auto& list = side == Pedalboard::beforeAmp ? before : after;
 
-        parameter->set (usable ? (float) (double) value : parameter->defaultValue);
+            if (const auto* entries = board[sideKeys[(size_t) side]].getArray())
+            {
+                for (const auto& entry : *entries)
+                {
+                    // A pedal this version does not know is skipped.
+                    if (const auto* type = findPedalType (entry[typeKey].toString()))
+                    {
+                        auto pedal = std::make_shared<Pedal> (*type);
+                        applyValues (pedal->getParameters(), entry[parametersKey]);
+                        list.push_back (std::move (pedal));
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // Version 1 had a fixed chain, with every pedal's settings in one list.
+        Pedalboard::makeClassicLayout (before, after);
+
+        for (auto* list : { &before, &after })
+            for (auto& pedal : *list)
+                applyValues (pedal->getParameters(), values);
     }
 
+    chain.getBoard().setPedals (std::move (before), std::move (after));
     chain.getCabinet().restoreFromDescription (preset[cabinetKey].toString());
     return true;
 }

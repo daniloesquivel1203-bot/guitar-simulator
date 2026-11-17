@@ -11,6 +11,7 @@ const char* const outputGainKey = "outputGainDb";
 const char* const cabinetSourceKey = "cab.source";
 const char* const presetNameKey = "preset.name";
 const char* const presetFactoryKey = "preset.isFactory";
+const char* const toneStateKey = "toneState";
 
 constexpr int watchdogIntervalMs = 1000;
 constexpr int stalledTicksBeforeRecovery = 3;
@@ -55,10 +56,26 @@ AudioEngine::~AudioEngine()
 
 void AudioEngine::loadToneSettings()
 {
-    for (auto* parameter : chain.getAllParameters())
-        parameter->set ((float) settings.getDoubleValue (parameter->id, parameter->defaultValue));
+    juce::var state;
 
-    chain.getCabinet().restoreFromDescription (settings.getValue (cabinetSourceKey));
+    if (juce::JSON::parse (settings.getValue (toneStateKey), state).failed() || ! state.isObject())
+    {
+        // Settings from V1 hold one value per parameter. They load as a
+        // version 1 preset, which keeps the fixed V1 pedal order.
+        auto values = std::make_unique<juce::DynamicObject>();
+
+        for (auto* parameter : chain.getAllParameters())
+            if (settings.containsKey (parameter->id))
+                values->setProperty (parameter->id, settings.getDoubleValue (parameter->id));
+
+        auto legacy = std::make_unique<juce::DynamicObject>();
+        legacy->setProperty ("format", "guitar-simulator-preset");
+        legacy->setProperty ("parameters", juce::var (values.release()));
+        legacy->setProperty ("cabinet", settings.getValue (cabinetSourceKey));
+        state = juce::var (legacy.release());
+    }
+
+    PresetManager::apply (chain, state);
 
     // On a first run the chain is at its defaults, which is the Default factory preset.
     presets.setCurrent ({ settings.getValue (presetNameKey, "Default"),
@@ -68,10 +85,7 @@ void AudioEngine::loadToneSettings()
 void AudioEngine::saveToneSettings()
 {
     // setValue only marks the file as changed when a value really differs.
-    for (auto* parameter : chain.getAllParameters())
-        settings.setValue (parameter->id, (double) parameter->get());
-
-    settings.setValue (cabinetSourceKey, chain.getCabinet().getSourceDescription());
+    settings.setValue (toneStateKey, juce::JSON::toString (PresetManager::capture (chain, {}), true));
     settings.setValue (presetNameKey, presets.getCurrent().name);
     settings.setValue (presetFactoryKey, presets.getCurrent().isFactory);
 }

@@ -16,6 +16,13 @@ void raisePeak (std::atomic<float>& peak, float candidate) noexcept
 }
 }
 
+SignalChain::SignalChain()
+{
+    Pedalboard::PedalList before, after;
+    Pedalboard::makeClassicLayout (before, after);
+    board.setPedals (std::move (before), std::move (after));
+}
+
 void SignalChain::prepare (double sampleRate, int maxBlockSize)
 {
     scratch.assign ((size_t) juce::jmax (16, maxBlockSize), 0.0f);
@@ -26,10 +33,7 @@ void SignalChain::prepare (double sampleRate, int maxBlockSize)
 
     const auto blockSize = (int) scratch.size();
 
-    for (auto* effect : getPreEffects())        effect->prepare (sampleRate, blockSize);
-    for (auto* effect : getPostMonoEffects())   effect->prepare (sampleRate, blockSize);
-    for (auto* effect : getStereoEffects())     effect->prepare (sampleRate, blockSize);
-
+    board.prepare (sampleRate, blockSize);
     amp.prepare (sampleRate, blockSize);
     cabinet.prepare (sampleRate, blockSize);
     limiter.prepare (sampleRate);
@@ -40,29 +44,24 @@ std::vector<Parameter*> SignalChain::getAllParameters()
 {
     std::vector<Parameter*> all;
 
-    const auto addEffect = [&all] (Effect& effect)
+    const auto addSide = [this, &all] (Pedalboard::Side side)
     {
-        all.push_back (&effect.enabled);
-
-        for (auto* control : effect.getControls())
-            all.push_back (control);
+        for (auto& pedal : board.getPedals (side))
+            for (auto* parameter : pedal->getParameters())
+                all.push_back (parameter);
     };
 
-    for (auto* effect : getPreEffects())        addEffect (*effect);
+    addSide (Pedalboard::beforeAmp);
     for (auto* parameter : amp.getParameters()) all.push_back (parameter);
     for (auto* parameter : cabinet.getParameters()) all.push_back (parameter);
-    for (auto* effect : getPostMonoEffects())   addEffect (*effect);
-    for (auto* effect : getStereoEffects())     addEffect (*effect);
+    addSide (Pedalboard::afterAmp);
 
     return all;
 }
 
 void SignalChain::reset()
 {
-    for (auto* effect : getPreEffects())        effect->reset();
-    for (auto* effect : getPostMonoEffects())   effect->reset();
-    for (auto* effect : getStereoEffects())     effect->reset();
-
+    board.reset();
     amp.reset();
     cabinet.reset();
     limiter.reset();
@@ -100,6 +99,7 @@ void SignalChain::process (const float* input, float* left, float* right, int nu
 void SignalChain::processChunk (const float* input, float* left, float* right, int numSamples) noexcept
 {
     auto* mono = scratch.data();
+    board.beginChunk();
 
     float blockInputPeak = 0.0f;
     float blockOutputPeak = 0.0f;
@@ -114,27 +114,25 @@ void SignalChain::processChunk (const float* input, float* left, float* right, i
         blockInputPeak = juce::jmax (blockInputPeak, std::abs (mono[i]));
     }
 
-    noiseGate.process (mono, numSamples);
-    compressor.process (mono, numSamples);
-    overdrive.process (mono, numSamples);
-    distortion.process (mono, numSamples);
+    board.processBeforeAmp (mono, numSamples);
     amp.process (mono, numSamples);
     cabinet.process (mono, numSamples);
-    equaliser.process (mono, numSamples);
 
-    // From here on the signal is stereo.
+    // The board turns the signal into stereo.
     auto* monoRight = scratchRight.data();
-    std::copy (mono, mono + numSamples, monoRight);
-
-    chorus.process (mono, monoRight, numSamples);
-    delay.process (mono, monoRight, numSamples);
-    reverb.process (mono, monoRight, numSamples);
+    board.processAfterAmp (mono, monoRight, numSamples);
 
     const bool monoOutput = left == right;
+    const bool fading = board.isFading();
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const auto gain = outputGain.getNextValue();
+        auto gain = outputGain.getNextValue();
+
+        // Briefly fades out and in while the pedal order changes.
+        if (fading)
+            gain *= board.getNextFadeGain();
+
         auto outLeft = mono[i] * gain;
         auto outRight = monoRight[i] * gain;
 
