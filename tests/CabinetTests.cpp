@@ -3,11 +3,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <catch2/generators/catch_generators_range.hpp>
 
 namespace
 {
 constexpr int blockSize = 128;
 constexpr double sampleRate = 48000.0;
+constexpr int numBuiltIns = 12;
 
 double responseAt (Cabinet& cabinet, double hz)
 {
@@ -17,17 +19,17 @@ double responseAt (Cabinet& cabinet, double hz)
 }
 }
 
-TEST_CASE ("there are three built-in cabinets with distinct names")
+TEST_CASE ("there are twelve built-in cabinets with distinct names")
 {
     auto names = Cabinet::getBuiltInNames();
-    REQUIRE (names.size() == 3);
+    REQUIRE (names.size() == numBuiltIns);
     names.removeDuplicates (false);
-    REQUIRE (names.size() == 3);
+    REQUIRE (names.size() == numBuiltIns);
 }
 
 TEST_CASE ("built-in impulse responses are finite, non-silent and end at zero")
 {
-    const auto index = GENERATE (0, 1, 2);
+    const auto index = GENERATE (Catch::Generators::range (0, numBuiltIns));
     const auto rate = GENERATE (44100.0, 48000.0, 96000.0);
 
     const auto impulse = Cabinet::makeBuiltInImpulse (index, rate);
@@ -42,11 +44,12 @@ TEST_CASE ("built-in impulse responses are finite, non-silent and end at zero")
 
 TEST_CASE ("every built-in cabinet removes fizz and rumble like a guitar speaker")
 {
-    const auto index = GENERATE (0, 1, 2);
+    const auto index = GENERATE (Catch::Generators::range (0, numBuiltIns));
 
     Cabinet cabinet;
     cabinet.selectBuiltIn (index);
 
+    INFO (Cabinet::getBuiltInNames()[index]);
     const auto mids = responseAt (cabinet, 1000.0);
     REQUIRE (mids > 0.0);
     REQUIRE (responseAt (cabinet, 12000.0) < 0.05 * mids);
@@ -56,7 +59,7 @@ TEST_CASE ("every built-in cabinet removes fizz and rumble like a guitar speaker
 
 TEST_CASE ("switching a cabinet on keeps a similar loudness across the guitar range")
 {
-    const auto index = GENERATE (0, 1, 2);
+    const auto index = GENERATE (Catch::Generators::range (0, numBuiltIns));
 
     Cabinet cabinet;
     cabinet.selectBuiltIn (index);
@@ -72,19 +75,44 @@ TEST_CASE ("switching a cabinet on keeps a similar loudness across the guitar ra
     }
 
     const auto averageDb = juce::Decibels::gainToDecibels (std::sqrt (sumOfSquares / (double) notes.size()));
-    INFO ("average level change " << averageDb << " dB");
+    INFO (Cabinet::getBuiltInNames()[index] << ": average level change " << averageDb << " dB");
     REQUIRE (std::abs (averageDb) < 3.0);
 }
 
 TEST_CASE ("the built-in cabinets differ from each other")
 {
-    Cabinet a, b;
-    a.selectBuiltIn (0);
-    b.selectBuiltIn (2);
+    const std::vector<double> points { 100.0, 450.0, 1200.0, 2800.0, 4500.0 };
 
-    const auto ratioA = responseAt (a, 3400.0) / responseAt (a, 450.0);
-    const auto ratioB = responseAt (b, 3400.0) / responseAt (b, 450.0);
-    REQUIRE (std::abs (ratioA - ratioB) > 0.1 * ratioA);
+    const auto shapeOf = [&] (int index)
+    {
+        Cabinet cabinet;
+        cabinet.selectBuiltIn (index);
+        std::vector<double> db;
+
+        for (auto hz : points)
+            db.push_back (juce::Decibels::gainToDecibels (responseAt (cabinet, hz)));
+
+        return db;
+    };
+
+    std::vector<std::vector<double>> shapes;
+
+    for (int i = 0; i < numBuiltIns; ++i)
+        shapes.push_back (shapeOf (i));
+
+    for (int a = 0; a < numBuiltIns; ++a)
+    {
+        for (int b = a + 1; b < numBuiltIns; ++b)
+        {
+            double largest = 0.0;
+
+            for (size_t p = 0; p < points.size(); ++p)
+                largest = std::max (largest, std::abs (shapes[(size_t) a][p] - shapes[(size_t) b][p]));
+
+            INFO ("cabinets " << a << " and " << b);
+            REQUIRE (largest > 1.5);
+        }
+    }
 }
 
 TEST_CASE ("the cut filters narrow the response")

@@ -6,24 +6,38 @@
 
 #include <array>
 
-/** A guitar amplifier model with three voicings.
+/** A guitar amplifier model with twelve voicings.
 
     Signal flow: input shaping, then one to three tube-style gain stages run at
     eight times the sample rate to keep distortion free of aliasing, then the
     bass, mid and treble tone controls, a power amp stage, presence and master
-    volume.
+    volume. Each voicing sets the gain structure, the filtering around the
+    gain stages, where the tone controls act, and how hard the power amp is
+    pushed. The voicings describe styles of amp, not specific products.
 
     Mono in, mono out, processed in place.
 */
 class AmpModel
 {
 public:
-    enum Voicing { clean = 0, crunch, lead, numVoicings };
+    // New voicings go at the end so saved presets keep their sound.
+    enum Voicing
+    {
+        clean = 0, crunch, lead,
+        brightClean, jazzClean, chime, tweed, britishVintage, hotRodBritish,
+        smoothOverdrive, modernScooped, tightModern,
+        numVoicings
+    };
 
-    static juce::StringArray getVoicingNames()   { return { "Clean", "Crunch", "Lead" }; }
+    static juce::StringArray getVoicingNames()
+    {
+        return { "Clean", "Crunch", "Lead",
+                 "Bright Clean", "Jazz Clean", "Chime", "Tweed", "British Vintage", "Hot-Rod British",
+                 "Smooth Overdrive", "Modern Scooped", "Tight Modern" };
+    }
 
     Parameter enabled  { "amp.enabled",  "On",       0.0f, 1.0f,  1.0f, 1.0f };
-    Parameter voicing  { "amp.voicing",  "Voicing",  0.0f, 2.0f,  0.0f, 1.0f };
+    Parameter voicing  { "amp.voicing",  "Voicing",  0.0f, (float) (numVoicings - 1), 0.0f, 1.0f };
     Parameter gain     { "amp.gain",     "Gain",     0.0f, 10.0f, 4.0f };
     Parameter bass     { "amp.bass",     "Bass",     0.0f, 10.0f, 5.0f };
     Parameter mid      { "amp.mid",      "Mid",      0.0f, 10.0f, 5.0f };

@@ -42,12 +42,73 @@ const CabinetSpec& getSpec (int index)
             { Band::peak, 450.0f, 0.8f, -4.5f },     { Band::peak, 1300.0f, 2.2f, -2.0f },
             { Band::peak, 3400.0f, 1.8f, 5.0f },     { Band::lowPass, 4600.0f, 1.1f, 0.0f },
             { Band::lowPass, 5600.0f, 0.7f, 0.0f } } },
+
+        // New cabinets go at the end so saved presets keep their cabinet.
+
+        // A small practice-style combo: little bass, boxy lower mids.
+        { "1x10 Small Combo",
+          { { Band::highPass, 110.0f, 0.8f, 0.0f },  { Band::peak, 160.0f, 1.3f, 3.0f },
+            { Band::peak, 600.0f, 1.0f, 2.0f },      { Band::peak, 2000.0f, 1.2f, 3.0f },
+            { Band::lowPass, 5200.0f, 0.9f, 0.0f },  { Band::lowPass, 6400.0f, 0.7f, 0.0f } } },
+
+        // A sealed 1x12: tighter, more focused bass than the open back.
+        { "1x12 Closed Back",
+          { { Band::highPass, 80.0f, 1.0f, 0.0f },   { Band::peak, 110.0f, 1.6f, 4.5f },
+            { Band::peak, 450.0f, 0.9f, -3.0f },     { Band::peak, 2600.0f, 1.3f, 4.5f },
+            { Band::lowPass, 5200.0f, 1.0f, 0.0f },  { Band::lowPass, 6400.0f, 0.7f, 0.0f } } },
+
+        // One big speaker: deep and round with soft highs.
+        { "1x15 Jazz",
+          { { Band::highPass, 55.0f, 0.8f, 0.0f },   { Band::peak, 85.0f, 1.2f, 3.0f },
+            { Band::peak, 400.0f, 0.9f, -1.0f },     { Band::peak, 1800.0f, 1.2f, 2.0f },
+            { Band::lowPass, 3800.0f, 0.9f, 0.0f },  { Band::lowPass, 5000.0f, 0.7f, 0.0f } } },
+
+        // Two small speakers in an open box: bright, airy and quick.
+        { "2x10 Open Back",
+          { { Band::highPass, 95.0f, 0.8f, 0.0f },   { Band::peak, 130.0f, 1.3f, 2.0f },
+            { Band::peak, 400.0f, 1.0f, -2.5f },     { Band::peak, 2500.0f, 1.2f, 4.0f },
+            { Band::peak, 4200.0f, 2.5f, 3.0f },     { Band::lowPass, 6000.0f, 0.9f, 0.0f },
+            { Band::lowPass, 6800.0f, 0.7f, 0.0f } } },
+
+        // High headroom American-style speakers: sparkly and scooped.
+        { "2x12 American Open Back",
+          { { Band::highPass, 70.0f, 0.8f, 0.0f },   { Band::peak, 100.0f, 1.3f, 3.0f },
+            { Band::peak, 500.0f, 0.8f, -4.0f },     { Band::peak, 2600.0f, 1.2f, 4.0f },
+            { Band::peak, 4500.0f, 2.5f, 3.0f },     { Band::lowPass, 5800.0f, 0.9f, 0.0f },
+            { Band::lowPass, 6800.0f, 0.7f, 0.0f } } },
+
+        // Alnico-magnet style speakers: smooth chime and sweet treble.
+        { "2x12 Smooth Chime",
+          { { Band::highPass, 80.0f, 0.9f, 0.0f },   { Band::peak, 115.0f, 1.5f, 3.0f },
+            { Band::peak, 450.0f, 1.0f, -2.0f },     { Band::peak, 1200.0f, 1.5f, 1.5f },
+            { Band::peak, 3600.0f, 2.0f, 4.0f },     { Band::lowPass, 5600.0f, 0.9f, 0.0f },
+            { Band::lowPass, 6600.0f, 0.7f, 0.0f } } },
+
+        // Four small speakers: punchy, tight and mid-forward.
+        { "4x10 Vintage",
+          { { Band::highPass, 90.0f, 1.0f, 0.0f },   { Band::peak, 120.0f, 1.6f, 4.0f },
+            { Band::peak, 700.0f, 1.0f, 2.0f },      { Band::peak, 2200.0f, 1.3f, 4.0f },
+            { Band::lowPass, 5400.0f, 1.0f, 0.0f },  { Band::lowPass, 6400.0f, 0.7f, 0.0f } } },
+
+        // Low-power 1960s style speakers: woody mid hump and an early treble roll-off.
+        { "4x12 Warm Vintage",
+          { { Band::highPass, 90.0f, 1.1f, 0.0f },   { Band::peak, 110.0f, 1.8f, 5.0f },
+            { Band::peak, 450.0f, 0.8f, -3.0f },     { Band::peak, 1200.0f, 1.4f, 3.0f },
+            { Band::peak, 2500.0f, 1.6f, 2.0f },     { Band::lowPass, 4200.0f, 1.1f, 0.0f },
+            { Band::lowPass, 5200.0f, 0.7f, 0.0f } } },
+
+        // Modern high-power speakers: strong upper-mid bite and a tight low end.
+        { "4x12 Modern Aggressive",
+          { { Band::highPass, 100.0f, 1.2f, 0.0f },  { Band::peak, 120.0f, 2.0f, 5.0f },
+            { Band::peak, 500.0f, 0.8f, -5.0f },     { Band::peak, 2800.0f, 1.6f, 7.0f },
+            { Band::peak, 5000.0f, 3.0f, -3.0f },    { Band::lowPass, 5000.0f, 1.1f, 0.0f },
+            { Band::lowPass, 6000.0f, 0.7f, 0.0f } } },
     };
 
     return specs[juce::jlimit (0, (int) std::size (specs) - 1, index)];
 }
 
-constexpr int numBuiltIns = 3;
+constexpr int numBuiltIns = 12;
 constexpr int builtInImpulseLength = 4096;
 const char* const builtInPrefix = "builtin:";
 const char* const filePrefix = "file:";

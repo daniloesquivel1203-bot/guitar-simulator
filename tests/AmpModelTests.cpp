@@ -3,6 +3,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <catch2/generators/catch_generators_range.hpp>
 
 namespace
 {
@@ -28,7 +29,7 @@ double distortionOf (AmpModel::Voicing voicing, float gain, double sampleRate = 
 
 TEST_CASE ("the amp turns silence into silence for every voicing")
 {
-    const auto voicing = GENERATE (AmpModel::clean, AmpModel::crunch, AmpModel::lead);
+    const auto voicing = (AmpModel::Voicing) GENERATE (Catch::Generators::range (0, (int) AmpModel::numVoicings));
 
     AmpModel amp;
     amp.voicing.set ((float) voicing);
@@ -42,7 +43,7 @@ TEST_CASE ("the amp turns silence into silence for every voicing")
 
 TEST_CASE ("the amp output stays finite and bounded at extreme settings")
 {
-    const auto voicing = GENERATE (AmpModel::clean, AmpModel::crunch, AmpModel::lead);
+    const auto voicing = (AmpModel::Voicing) GENERATE (Catch::Generators::range (0, (int) AmpModel::numVoicings));
     const auto sampleRate = GENERATE (44100.0, 48000.0, 96000.0);
 
     AmpModel amp;
@@ -64,7 +65,7 @@ TEST_CASE ("the clean voicing at low gain is close to undistorted")
 
 TEST_CASE ("turning up the gain adds distortion")
 {
-    const auto voicing = GENERATE (AmpModel::clean, AmpModel::crunch, AmpModel::lead);
+    const auto voicing = (AmpModel::Voicing) GENERATE (Catch::Generators::range (0, (int) AmpModel::numVoicings));
 
     const auto low = distortionOf (voicing, 2.0f);
     const auto mid = distortionOf (voicing, 6.0f);
@@ -72,6 +73,37 @@ TEST_CASE ("turning up the gain adds distortion")
 
     REQUIRE (mid > low);
     REQUIRE (high > mid);
+}
+
+TEST_CASE ("there is a distinct name for every voicing")
+{
+    auto names = AmpModel::getVoicingNames();
+    REQUIRE (names.size() == AmpModel::numVoicings);
+    names.removeDuplicates (false);
+    REQUIRE (names.size() == AmpModel::numVoicings);
+
+    AmpModel amp;
+    amp.voicing.set (100.0f);
+    REQUIRE (amp.voicing.getIndex() == AmpModel::numVoicings - 1);
+}
+
+TEST_CASE ("the voicings are similar in loudness")
+{
+    const auto levelOf = [] (int voicing)
+    {
+        AmpModel amp;
+        amp.voicing.set ((float) voicing);
+        amp.gain.set (5.0f);
+        const auto out = playNote (amp, 48000.0);
+        return test::rms (out, out.size() / 2);
+    };
+
+    const auto reference = levelOf (AmpModel::crunch);
+    const auto voicing = GENERATE (Catch::Generators::range (0, (int) AmpModel::numVoicings));
+    const auto db = juce::Decibels::gainToDecibels (levelOf (voicing) / reference);
+
+    INFO (AmpModel::getVoicingNames()[voicing] << ": " << db << " dB relative to Crunch");
+    REQUIRE (std::abs (db) < 6.0);
 }
 
 TEST_CASE ("each voicing is more distorted than the one before at the same gain")
@@ -87,7 +119,7 @@ TEST_CASE ("each voicing is more distorted than the one before at the same gain"
 
 TEST_CASE ("the voicings sound the same at different sample rates")
 {
-    const auto voicing = GENERATE (AmpModel::clean, AmpModel::crunch, AmpModel::lead);
+    const auto voicing = (AmpModel::Voicing) GENERATE (Catch::Generators::range (0, (int) AmpModel::numVoicings));
 
     const auto at48 = distortionOf (voicing, 6.0f, 48000.0);
     const auto at96 = distortionOf (voicing, 6.0f, 96000.0);
@@ -103,8 +135,11 @@ TEST_CASE ("high gain distortion does not alias back into the audible range")
     const double sampleRate = 48000.0;
     const double hz = 5000.0;
 
+    const auto voicing = GENERATE (AmpModel::lead, AmpModel::chime, AmpModel::tweed, AmpModel::hotRodBritish,
+                                   AmpModel::modernScooped, AmpModel::tightModern);
+
     AmpModel amp;
-    amp.voicing.set ((float) AmpModel::lead);
+    amp.voicing.set ((float) voicing);
     amp.gain.set (10.0f);
     amp.prepare (sampleRate, blockSize);
 
@@ -118,7 +153,7 @@ TEST_CASE ("high gain distortion does not alias back into the audible range")
     };
 
     // 9 x 5 kHz folds to 3 kHz, 11 x 5 kHz to 7 kHz, and 19 x 5 kHz to 1 kHz.
-    INFO ("3 kHz " << aliasDb (3000.0) << " dB, 7 kHz " << aliasDb (7000.0) << " dB, 1 kHz " << aliasDb (1000.0) << " dB");
+    INFO (AmpModel::getVoicingNames()[voicing] << ": 3 kHz " << aliasDb (3000.0) << " dB, 7 kHz " << aliasDb (7000.0) << " dB, 1 kHz " << aliasDb (1000.0) << " dB");
     REQUIRE (aliasDb (3000.0) < -50.0);
     REQUIRE (aliasDb (7000.0) < -50.0);
     REQUIRE (aliasDb (1000.0) < -50.0);
@@ -171,7 +206,7 @@ TEST_CASE ("a bypassed amp passes the signal through untouched")
 
 TEST_CASE ("the amp does not leave a DC offset on the output")
 {
-    const auto voicing = GENERATE (AmpModel::clean, AmpModel::crunch, AmpModel::lead);
+    const auto voicing = (AmpModel::Voicing) GENERATE (Catch::Generators::range (0, (int) AmpModel::numVoicings));
 
     AmpModel amp;
     amp.voicing.set ((float) voicing);
