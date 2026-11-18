@@ -232,21 +232,21 @@ void AmpCapture::updateTone()
     if (! juce::exactlyEqual (newBass, lastBass))
     {
         lastBass = newBass;
-        bassFilter.coefficients = Coefficients::makeLowShelf (sampleRate, 120.0, 0.7,
+        bassFilter.coefficients = Coefficients::makeLowShelf (sampleRate, 120.0f, 0.7f,
                                                               juce::Decibels::decibelsToGain (knobToDb (newBass)));
     }
 
     if (! juce::exactlyEqual (newMid, lastMid))
     {
         lastMid = newMid;
-        midFilter.coefficients = Coefficients::makePeakFilter (sampleRate, 700.0, 0.7,
+        midFilter.coefficients = Coefficients::makePeakFilter (sampleRate, 700.0f, 0.7f,
                                                                juce::Decibels::decibelsToGain (knobToDb (newMid)));
     }
 
     if (! juce::exactlyEqual (newTreble, lastTreble))
     {
         lastTreble = newTreble;
-        trebleFilter.coefficients = Coefficients::makeHighShelf (sampleRate, 3000.0, 0.7,
+        trebleFilter.coefficients = Coefficients::makeHighShelf (sampleRate, 3000.0f, 0.7f,
                                                                  juce::Decibels::decibelsToGain (knobToDb (newTreble)));
     }
 }
