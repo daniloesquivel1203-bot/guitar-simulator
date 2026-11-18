@@ -71,7 +71,7 @@ void AmpPanel::resized()
     auto header = getHeaderArea();
     power.setBounds (header.removeFromRight (60));
     header.removeFromRight (12);
-    voicing.setBounds (header.removeFromRight (140));
+    voicing.setBounds (header.removeFromRight (180));
 
     layoutKnobRow (getContentArea(), { &gain, &bass, &mid, &treble, &presence, &master });
 }

@@ -11,7 +11,7 @@
 
     A raw amp signal is harsh and fizzy. A guitar speaker removes most of the
     treble and adds its own resonances, and an impulse response (IR) captures
-    that. Three built-in cabinets are generated mathematically, so no audio
+    that. Twelve built-in cabinets are generated mathematically, so no audio
     files ship with the app, and any IR file (WAV or AIFF) can be loaded.
 
     Mono in, mono out, processed in place. Loading and selecting happen on the

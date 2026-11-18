@@ -70,6 +70,46 @@ const std::initializer_list<FactoryPreset>& getFactoryPresets()
             { "delay.enabled", 1 }, { "delay.time", 480.0f }, { "delay.feedback", 55.0f }, { "delay.mix", 40.0f },
             { "delay.pingPong", 1 },
             { "reverb.enabled", 1 }, { "reverb.size", 9.0f }, { "reverb.mix", 45.0f } } },
+
+        { "American Sparkle", "builtin:7",
+          { { "amp.voicing", 3 }, { "amp.gain", 4.0f }, { "amp.treble", 6.0f },
+            { "comp.enabled", 1 }, { "comp.threshold", -20.0f }, { "comp.ratio", 3.0f }, { "comp.makeup", 2.0f },
+            { "reverb.enabled", 1 }, { "reverb.mix", 25.0f } } },
+
+        { "Jazz Box", "builtin:5",
+          { { "amp.voicing", 4 }, { "amp.gain", 4.0f }, { "amp.bass", 6.0f }, { "amp.treble", 4.0f },
+            { "reverb.enabled", 1 }, { "reverb.mix", 15.0f } } },
+
+        { "Chime Jangle", "builtin:8",
+          { { "amp.voicing", 5 }, { "amp.gain", 4.0f }, { "amp.treble", 6.0f },
+            { "reverb.enabled", 1 }, { "reverb.mix", 18.0f } } },
+
+        { "Tweed Breakup", "builtin:3",
+          { { "amp.voicing", 6 }, { "amp.gain", 6.0f },
+            { "reverb.enabled", 1 }, { "reverb.mix", 12.0f } } },
+
+        { "Vintage Stack", "builtin:10",
+          { { "amp.voicing", 7 }, { "amp.gain", 7.0f }, { "amp.mid", 6.0f }, { "amp.presence", 6.0f },
+            { "reverb.enabled", 1 }, { "reverb.mix", 10.0f } } },
+
+        { "Hot-Rod Lead", "builtin:10",
+          { { "amp.voicing", 8 }, { "amp.gain", 6.0f }, { "amp.mid", 6.0f },
+            { "gate.enabled", 1 }, { "gate.threshold", -55.0f },
+            { "delay.enabled", 1 }, { "delay.time", 420.0f }, { "delay.feedback", 30.0f }, { "delay.mix", 20.0f } } },
+
+        { "Singing Lead", "builtin:4",
+          { { "amp.voicing", 9 }, { "amp.gain", 6.0f },
+            { "delay.enabled", 1 }, { "delay.time", 450.0f }, { "delay.feedback", 35.0f }, { "delay.mix", 22.0f },
+            { "reverb.enabled", 1 }, { "reverb.mix", 15.0f } } },
+
+        { "Scooped Metal", "builtin:11",
+          { { "amp.voicing", 10 }, { "amp.gain", 7.0f }, { "amp.bass", 6.0f },
+            { "gate.enabled", 1 }, { "gate.threshold", -48.0f }, { "gate.release", 80.0f } } },
+
+        { "Tight Djent", "builtin:11",
+          { { "amp.voicing", 11 }, { "amp.gain", 7.0f },
+            { "gate.enabled", 1 }, { "gate.threshold", -45.0f }, { "gate.release", 60.0f },
+            { "od.enabled", 1 }, { "od.drive", 1.0f }, { "od.tone", 6.0f }, { "od.level", 8.0f } } },
     };
 
     return presets;
