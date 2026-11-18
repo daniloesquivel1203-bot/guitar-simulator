@@ -116,6 +116,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/TunerTests.cpp
             tests/SafetyLimiterTests.cpp
             tests/SignalChainTests.cpp
+            tests/SoundLabTests.cpp
             tests/TestSignals.h)
 
     target_include_directories(GuitarSimulatorTests PRIVATE src)

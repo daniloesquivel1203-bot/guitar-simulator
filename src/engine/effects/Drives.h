@@ -33,13 +33,29 @@ protected:
     virtual void postShape (float*, int) noexcept {}
     virtual float getLevelKnob() const noexcept = 0;
 
+    /** A fixed output correction, so that every drive at its default
+        settings is about as loud as the others. */
+    virtual float getOutputTrimDb() const noexcept   { return 0.0f; }
+
+    /** True for old fuzz and booster circuits with a low input impedance.
+        Straight from the guitar they load the pickups, which rounds off the
+        treble and softens the attack. Behind another pedal they get the full,
+        bright signal and sound thinner and spikier, as the real ones do. */
+    virtual bool loadsThePickups() const noexcept   { return false; }
+
 private:
+    void applyPickupLoading (float* samples, int numSamples) noexcept;
+
     juce::dsp::Oversampling<float> oversampling { 1, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
                                                   true, false };
     Filter toneFilter;
     juce::SmoothedValue<float> level { 1.0f };
     double rate = 48000.0;
     float lastToneHz = -1.0f;
+
+    juce::SmoothedValue<float> loading { 0.0f };
+    float trebleState = 0.0f, bassState = 0.0f;
+    float trebleCoefficient = 0.0f, bassCoefficient = 0.0f;
 };
 
 /** A smooth, mid-focused overdrive in the style of the classic green pedal.
@@ -65,6 +81,7 @@ private:
     void shape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override;
     float getLevelKnob() const noexcept override   { return level.get(); }
+    float getOutputTrimDb() const noexcept override  { return -3.0f; }
 
     Filter highPass;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> driveGain { 1.0f };
@@ -88,6 +105,7 @@ private:
     void shape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override;
     float getLevelKnob() const noexcept override   { return level.get(); }
+    float getOutputTrimDb() const noexcept override  { return -7.5f; }
 
     Filter highPass, lowPass;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> driveGain { 1.0f };

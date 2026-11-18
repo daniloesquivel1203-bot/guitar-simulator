@@ -141,6 +141,14 @@ void Pedal::reset()
     twinInUse = false;
 }
 
+void Pedal::setFedByGuitar (bool isFedByGuitar) noexcept
+{
+    effect->setFedByGuitar (isFedByGuitar);
+
+    if (twin != nullptr)
+        twin->setFedByGuitar (isFedByGuitar);
+}
+
 void Pedal::processMono (float* samples, int numSamples) noexcept
 {
     if (mono != nullptr)
@@ -361,8 +369,16 @@ void Pedalboard::beginChunk() noexcept
 
 void Pedalboard::processBeforeAmp (float* mono, int numSamples) noexcept
 {
+    // A pedal that is switched off passes the guitar straight through, so a
+    // pedal only stops hearing the pickups once one in front of it is on.
+    bool fedByGuitar = true;
+
     for (auto& pedal : active->pedals[beforeAmp])
+    {
+        pedal->setFedByGuitar (fedByGuitar);
         pedal->processMono (mono, numSamples);
+        fedByGuitar = fedByGuitar && ! pedal->getEffect().enabled.isOn();
+    }
 }
 
 void Pedalboard::processAfterAmp (float* left, float* right, int numSamples) noexcept
@@ -373,6 +389,8 @@ void Pedalboard::processAfterAmp (float* left, float* right, int numSamples) noe
 
     for (auto& pedal : active->pedals[afterAmp])
     {
+        pedal->setFedByGuitar (false);
+
         if (pedal->isStereo() && ! isStereo)
         {
             std::copy (left, left + numSamples, right);

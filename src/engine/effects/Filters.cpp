@@ -44,7 +44,9 @@ void EnvelopeFilter::process (float* samples, int numSamples) noexcept
         const auto cutoff = 200.0f * std::exp2 (octaves * (down ? 1.0f - opening : opening));
         const auto out = filter.process (x, cutoff, q, rate);
 
-        float filtered = out.lowPass;
+        // The low-pass's resonant peak sits on the loudest harmonics, so it
+        // is turned down to keep the pedal about as loud as the dry sound.
+        float filtered = 0.6f * out.lowPass;
 
         if (filterMode == 1)        filtered = 2.0f * out.bandPass / q;
         else if (filterMode == 2)   filtered = out.highPass;
@@ -92,7 +94,7 @@ void Wah::process (float* samples, int numSamples) noexcept
 
         // Mostly the resonant peak, with some of the low end kept so it does
         // not get thin.
-        samples[i] = 1.4f * (out.bandPass / q + 0.3f * out.lowPass);
+        samples[i] = 2.1f * (out.bandPass / q + 0.3f * out.lowPass);
     }
 }
 
@@ -168,7 +170,7 @@ void VowelFilter::process (float* samples, int numSamples) noexcept
         }
 
         const auto amount = wet.getNextValue();
-        samples[i] = x + amount * (2.0f * sum - x);
+        samples[i] = x + amount * (4.4f * sum - x);
     }
 }
 
