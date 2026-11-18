@@ -233,7 +233,7 @@ void MainComponent::rebuildChain (int fallbackIndex)
     addSide (Pedalboard::beforeAmp);
 
     tiles.push_back ({ ChainStrip::Kind::amp, Pedalboard::beforeAmp, -1, "Amp", &chain.getAmp().enabled });
-    panelMakers.push_back ([&chain] { return std::make_unique<AmpPanel> (chain.getAmp()); });
+    panelMakers.push_back ([&chain] { return std::make_unique<AmpPanel> (chain.getAmp(), chain.getCapture(), chain.getCabinet()); });
     tilePedals.push_back ({});
     tiles.push_back ({ ChainStrip::Kind::cabinet, Pedalboard::afterAmp, -1, "Cab", &chain.getCabinet().enabled });
     panelMakers.push_back ([&chain] { return std::make_unique<CabinetPanel> (chain.getCabinet()); });

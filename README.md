@@ -34,6 +34,33 @@ Windows. The More button next to the preset list opens that folder.
 Settings are remembered between launches. If the interface is unplugged, the
 app waits and reconnects when it returns.
 
+## Amp captures (NAM)
+
+The Amp block can play a Neural Amp Modeler capture instead of a built-in
+voicing. A capture is a `.nam` file: a small neural network trained on a real
+amp or pedal at one setting. Thousands are free to download, for example from
+ToneHunt.
+
+1. Click the Amp tile, open the drop-down and choose **Load capture file
+   (.nam)...**.
+2. The knobs change to Input (how hard the capture is driven), Bass, Mid,
+   Treble and Output. Pick a built-in voicing from the same drop-down to go
+   back; the capture stays in the list until you choose **Remove capture**.
+3. Captures marked as including the speaker cabinet switch the Cab block off
+   when loaded, so you do not get two cabinets. Switch it back on if you want.
+
+Captures that report their loudness are levelled to a common volume. A capture
+made at a different sample rate from your audio device is converted on the
+fly. Presets remember the capture file by its location, so keep your captures
+in one folder; a preset whose file has moved falls back to the built-in amp.
+
+A full-size capture costs much more processing than the built-in amp (roughly
+10 to 30% of one core, depending on the computer). If you hear crackles, raise
+the buffer size or use a "lite" or "feather" version of the capture.
+
+The captures are run by [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore)
+(MIT licence), which the build downloads automatically along with Eigen.
+
 ## Pedal library
 
 Click a **+** tile on either side of the amp to add a pedal. The menu groups

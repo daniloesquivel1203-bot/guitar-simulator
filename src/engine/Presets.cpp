@@ -6,6 +6,7 @@ const juce::Identifier nameKey { "name" };
 const juce::Identifier formatKey { "format" };
 const juce::Identifier parametersKey { "parameters" };
 const juce::Identifier cabinetKey { "cabinet" };
+const juce::Identifier captureKey { "ampCapture" };
 const juce::Identifier versionKey { "version" };
 const juce::Identifier boardKey { "board" };
 const juce::Identifier typeKey { "type" };
@@ -149,6 +150,7 @@ std::vector<Parameter*> getAmpAndCabinetParameters (SignalChain& chain)
     std::vector<Parameter*> parameters;
 
     for (auto* parameter : chain.getAmp().getParameters())       parameters.push_back (parameter);
+    for (auto* parameter : chain.getCapture().getParameters())   parameters.push_back (parameter);
     for (auto* parameter : chain.getCabinet().getParameters())   parameters.push_back (parameter);
 
     return parameters;
@@ -201,6 +203,8 @@ juce::var PresetManager::capture (SignalChain& chain, const juce::String& name)
     root->setProperty (nameKey, name);
     root->setProperty (parametersKey, captureValues (getAmpAndCabinetParameters (chain)));
     root->setProperty (cabinetKey, chain.getCabinet().getSourceDescription());
+    root->setProperty (captureKey, chain.getCapture().isLoaded() ? chain.getCapture().getLoadedFile().getFullPathName()
+                                                                 : juce::String());
     root->setProperty (boardKey, juce::var (board.release()));
     return juce::var (root.release());
 }
@@ -250,6 +254,14 @@ bool PresetManager::apply (SignalChain& chain, const juce::var& preset)
 
     chain.getBoard().setPedals (std::move (before), std::move (after));
     chain.getCabinet().restoreFromDescription (preset[cabinetKey].toString());
+
+    // A preset without a capture, or whose capture file has gone missing, uses the built-in amp.
+    const auto capturePath = preset[captureKey].toString();
+
+    if (capturePath.isEmpty() || ! juce::File::isAbsolutePath (capturePath)
+        || chain.getCapture().loadFile (juce::File (capturePath)).isNotEmpty())
+        chain.getCapture().unload();
+
     return true;
 }
 

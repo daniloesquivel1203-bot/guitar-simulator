@@ -211,7 +211,7 @@ TEST_CASE ("the chain lists every parameter exactly once")
     SignalChain chain;
     const auto parameters = chain.getAllParameters();
 
-    REQUIRE (parameters.size() == 46);
+    REQUIRE (parameters.size() == 52);
 
     for (size_t a = 0; a < parameters.size(); ++a)
         for (size_t b = a + 1; b < parameters.size(); ++b)

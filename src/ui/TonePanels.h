@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../engine/AmpCapture.h"
 #include "../engine/AmpModel.h"
 #include "../engine/Cabinet.h"
 #include "../engine/effects/Effect.h"
@@ -36,18 +37,32 @@ private:
     bool dimmed = false;
 };
 
+/** The amp block. The drop-down picks one of the built-in voicings or a
+    loaded capture (.nam file), and the knobs below change to match. */
 class AmpPanel final : public TonePanel
 {
 public:
-    explicit AmpPanel (AmpModel&);
+    AmpPanel (AmpModel&, AmpCapture&, Cabinet&);
     void resized() override;
     void refreshPower() override   { power.refresh(); }
 
 private:
+    enum ItemIds { firstVoicingId = 1, captureId = 100, loadCaptureId = 200, removeCaptureId = 300 };
+
+    void refreshChoices();
+    void choiceChanged();
+    void chooseCaptureFile();
+    void showCaptureDetails();
+
     AmpModel& amp;
+    AmpCapture& capture;
+    Cabinet& cabinet;
     ParameterToggle power;
-    juce::ComboBox voicing;
+    juce::ComboBox choice;
     ParameterKnob gain, bass, mid, treble, presence, master;
+    ParameterKnob captureInput, captureBass, captureMid, captureTreble, captureOutput;
+    juce::Label message;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
 class CabinetPanel final : public TonePanel

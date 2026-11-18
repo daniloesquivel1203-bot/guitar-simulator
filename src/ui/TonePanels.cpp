@@ -50,20 +50,29 @@ void TonePanel::layoutKnobRow (juce::Rectangle<int> area, const std::vector<juce
 }
 
 //==============================================================================
-AmpPanel::AmpPanel (AmpModel& ampToUse)
+AmpPanel::AmpPanel (AmpModel& ampToUse, AmpCapture& captureToUse, Cabinet& cabinetToUse)
     : TonePanel ("AMP", &ampToUse.enabled),
-      amp (ampToUse),
+      amp (ampToUse), capture (captureToUse), cabinet (cabinetToUse),
       power (amp.enabled),
       gain (amp.gain), bass (amp.bass), mid (amp.mid),
-      treble (amp.treble), presence (amp.presence), master (amp.master)
+      treble (amp.treble), presence (amp.presence), master (amp.master),
+      captureInput (capture.input), captureBass (capture.bass), captureMid (capture.mid),
+      captureTreble (capture.treble), captureOutput (capture.output)
 {
-    voicing.addItemList (AmpModel::getVoicingNames(), 1);
-    voicing.setSelectedItemIndex (amp.voicing.getIndex(), juce::dontSendNotification);
-    voicing.onChange = [this] { amp.voicing.set ((float) voicing.getSelectedItemIndex()); };
+    choice.onChange = [this] { choiceChanged(); };
 
-    for (auto* component : std::initializer_list<juce::Component*> { &power, &voicing, &gain, &bass, &mid,
-                                                                     &treble, &presence, &master })
+    message.setFont (juce::FontOptions (13.0f));
+    message.setJustificationType (juce::Justification::centredLeft);
+    message.setMinimumHorizontalScale (1.0f);
+
+    for (auto* component : std::initializer_list<juce::Component*> { &power, &choice, &gain, &bass, &mid, &treble,
+                                                                     &presence, &master, &captureInput, &captureBass,
+                                                                     &captureMid, &captureTreble, &captureOutput })
         addAndMakeVisible (component);
+
+    addChildComponent (message);
+    refreshChoices();
+    showCaptureDetails();
 }
 
 void AmpPanel::resized()
@@ -71,9 +80,140 @@ void AmpPanel::resized()
     auto header = getHeaderArea();
     power.setBounds (header.removeFromRight (60));
     header.removeFromRight (12);
-    voicing.setBounds (header.removeFromRight (180));
+    choice.setBounds (header.removeFromRight (260));
 
-    layoutKnobRow (getContentArea(), { &gain, &bass, &mid, &treble, &presence, &master });
+    auto area = getContentArea();
+    layoutKnobRow (area, { &gain, &bass, &mid, &treble, &presence, &master });
+
+    // In capture mode the knobs sit on the left and a note about the capture on the right.
+    auto captureKnobs = area.removeFromLeft (juce::jmin (area.getWidth() * 2 / 3, 5 * ParameterKnob::preferredWidth + 4 * 24));
+    layoutKnobRow (captureKnobs, { &captureInput, &captureBass, &captureMid, &captureTreble, &captureOutput });
+    area.removeFromLeft (24);
+    message.setBounds (area);
+}
+
+void AmpPanel::refreshChoices()
+{
+    choice.clear (juce::dontSendNotification);
+    choice.addItemList (AmpModel::getVoicingNames(), firstVoicingId);
+    choice.addSeparator();
+
+    if (capture.isLoaded())
+        choice.addItem ("Capture: " + capture.getInfo().name, captureId);
+
+    choice.addItem ("Load capture file (.nam)...", loadCaptureId);
+
+    if (capture.isLoaded())
+        choice.addItem ("Remove capture", removeCaptureId);
+
+    choice.setSelectedId (capture.isInUse() ? (int) captureId : firstVoicingId + amp.voicing.getIndex(),
+                          juce::dontSendNotification);
+
+    const auto usingCapture = capture.isInUse();
+
+    for (auto* knob : { &gain, &bass, &mid, &treble, &presence, &master })
+        knob->setVisible (! usingCapture);
+
+    for (auto* knob : { &captureInput, &captureBass, &captureMid, &captureTreble, &captureOutput })
+        knob->setVisible (usingCapture);
+
+    message.setVisible (usingCapture);
+}
+
+void AmpPanel::choiceChanged()
+{
+    const auto id = choice.getSelectedId();
+
+    if (id == loadCaptureId)
+    {
+        chooseCaptureFile();
+        return;
+    }
+
+    if (id == removeCaptureId)
+    {
+        capture.unload();
+        capture.active.set (0.0f);
+    }
+    else if (id == captureId)
+    {
+        capture.active.set (1.0f);
+        showCaptureDetails();
+    }
+    else if (id >= firstVoicingId && id < captureId)
+    {
+        capture.active.set (0.0f);
+        amp.voicing.set ((float) (id - firstVoicingId));
+    }
+
+    refreshChoices();
+}
+
+void AmpPanel::chooseCaptureFile()
+{
+    const auto startFolder = capture.getLoadedFile().existsAsFile()
+                                 ? capture.getLoadedFile().getParentDirectory()
+                                 : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+
+    fileChooser = std::make_unique<juce::FileChooser> ("Choose an amp capture (.nam file)", startFolder, "*.nam");
+
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [this] (const juce::FileChooser& chooser)
+                              {
+                                  const auto file = chooser.getResult();
+
+                                  // An empty result means the dialog was cancelled.
+                                  if (file != juce::File())
+                                  {
+                                      const auto error = capture.loadFile (file);
+
+                                      if (error.isNotEmpty())
+                                      {
+                                          refreshChoices();
+                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                                                  "Could not load the capture", error);
+                                          return;
+                                      }
+
+                                      capture.active.set (1.0f);
+
+                                      // A capture that includes the speaker would get a second
+                                      // one from the cabinet block, so switch that off. The
+                                      // user can switch it back on.
+                                      if (capture.getInfo().includesCabinet())
+                                          cabinet.enabled.set (0.0f);
+
+                                      showCaptureDetails();
+                                  }
+
+                                  refreshChoices();
+                              });
+}
+
+void AmpPanel::showCaptureDetails()
+{
+    if (! capture.isLoaded())
+        return;
+
+    const auto info = capture.getInfo();
+    juce::StringArray lines;
+
+    lines.add (info.name + ", made at " + juce::String (info.sampleRate / 1000.0, 1) + " kHz.");
+
+    if (info.includesCabinet())
+        lines.add ("It includes the speaker cabinet, so the Cab block is normally off. Switch it on to add a second cabinet.");
+    else if (info.gearType.isNotEmpty())
+        lines.add ("It does not include a speaker cabinet, so keep the Cab block on.");
+    else
+        lines.add ("The file does not say whether it includes a speaker cabinet. If it sounds muffled, switch the Cab block off.");
+
+    if (! info.hasLoudness)
+        lines.add ("The file does not report its loudness, so set the level with Output.");
+
+    lines.add ("Input sets how hard the capture is driven.");
+
+    message.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
+    message.setText (lines.joinIntoString ("\n"), juce::dontSendNotification);
 }
 
 //==============================================================================
