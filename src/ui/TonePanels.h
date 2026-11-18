@@ -72,16 +72,18 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
-/** Controls for any pedal, built from the pedal's own list of parameters. */
+/** Controls for any pedal, built from the pedal's own list of parameters.
+    With `onRemove` set, a Remove button calls it. */
 class EffectPanel final : public TonePanel
 {
 public:
-    explicit EffectPanel (Effect&);
+    explicit EffectPanel (Effect&, std::function<void()> onRemove = {});
     void resized() override;
     void refreshPower() override   { power.refresh(); }
 
 private:
     ParameterToggle power;
+    juce::TextButton removeButton { "Remove" };
     juce::OwnedArray<ParameterKnob> knobs;
     juce::OwnedArray<ParameterToggle> switches;
 };

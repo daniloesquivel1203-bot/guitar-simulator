@@ -181,11 +181,18 @@ void CabinetPanel::chooseFile()
 }
 
 //==============================================================================
-EffectPanel::EffectPanel (Effect& effect)
+EffectPanel::EffectPanel (Effect& effect, std::function<void()> onRemove)
     : TonePanel (juce::String (effect.name).toUpperCase(), &effect.enabled),
       power (effect.enabled)
 {
     addAndMakeVisible (power);
+
+    if (onRemove != nullptr)
+    {
+        removeButton.setTooltip ("Take this pedal off the board.");
+        removeButton.onClick = std::move (onRemove);
+        addAndMakeVisible (removeButton);
+    }
 
     for (auto* control : effect.getControls())
     {
@@ -200,6 +207,8 @@ void EffectPanel::resized()
 {
     auto header = getHeaderArea();
     power.setBounds (header.removeFromRight (60));
+    header.removeFromRight (12);
+    removeButton.setBounds (header.removeFromRight (80));
 
     auto area = getContentArea();
 

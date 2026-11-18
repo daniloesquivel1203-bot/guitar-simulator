@@ -29,6 +29,7 @@ target_sources(GuitarSimulator
         src/engine/AmpModel.cpp
         src/engine/AudioEngine.cpp
         src/engine/Cabinet.cpp
+        src/engine/Pedalboard.cpp
         src/engine/Presets.cpp
         src/engine/SignalChain.cpp
         src/engine/Tuner.cpp
@@ -83,6 +84,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
         PRIVATE
             src/engine/AmpModel.cpp
             src/engine/Cabinet.cpp
+            src/engine/Pedalboard.cpp
             src/engine/Presets.cpp
             src/engine/SignalChain.cpp
             src/engine/Tuner.cpp
@@ -93,8 +95,9 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/CabinetTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
+            tests/PedalboardTests.cpp
             tests/PerformanceTests.cpp
-        tests/PresetTests.cpp
+            tests/PresetTests.cpp
             tests/TunerTests.cpp
             tests/SafetyLimiterTests.cpp
             tests/SignalChainTests.cpp

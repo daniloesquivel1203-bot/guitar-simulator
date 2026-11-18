@@ -73,7 +73,7 @@ TEST_CASE ("parameters missing from a preset go to their defaults and unknown on
 
     REQUIRE_THAT (chain.getAmp().gain.get(), WithinAbs (9.0, 1.0e-6));
     REQUIRE_THAT (chain.getAmp().bass.get(), WithinAbs (chain.getAmp().bass.defaultValue, 1.0e-6));
-    REQUIRE_THAT (chain.getDelay().time.get(), WithinAbs (chain.getDelay().time.defaultValue, 1.0e-6));
+    REQUIRE_THAT (chain.findPedal<Delay>()->time.get(), WithinAbs (chain.findPedal<Delay>()->time.defaultValue, 1.0e-6));
     REQUIRE (chain.getCabinet().getBuiltInIndex() == 0);
 }
 
@@ -149,7 +149,7 @@ TEST_CASE ("a user preset can be saved, listed, loaded, renamed and deleted")
     REQUIRE (f.presets.getUserNames().isEmpty());
 
     f.chain.getAmp().gain.set (7.5f);
-    f.chain.getDelay().enabled.set (1.0f);
+    f.chain.findPedal<Delay>()->enabled.set (1.0f);
     REQUIRE (f.presets.saveUser ("My Sound").isEmpty());
     REQUIRE (f.presets.getUserNames() == juce::StringArray { "My Sound" });
     REQUIRE (f.presets.userPresetExists ("My Sound"));
@@ -157,11 +157,11 @@ TEST_CASE ("a user preset can be saved, listed, loaded, renamed and deleted")
 
     // Change things, then load the preset back.
     f.chain.getAmp().gain.set (1.0f);
-    f.chain.getDelay().enabled.set (0.0f);
+    f.chain.findPedal<Delay>()->enabled.set (0.0f);
     REQUIRE (f.presets.isModified());
     REQUIRE (f.presets.load ({ "My Sound", false }).isEmpty());
     REQUIRE_THAT (f.chain.getAmp().gain.get(), WithinAbs (7.5, 1.0e-4));
-    REQUIRE (f.chain.getDelay().enabled.isOn());
+    REQUIRE (f.chain.findPedal<Delay>()->enabled.isOn());
     REQUIRE_FALSE (f.presets.isModified());
 
     REQUIRE (f.presets.renameUser ("My Sound", "Better Name").isEmpty());

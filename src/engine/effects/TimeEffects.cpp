@@ -134,9 +134,11 @@ void Delay::process (float* left, float* right, int numSamples) noexcept
 //==============================================================================
 void Reverb::prepare (double sampleRate, int)
 {
-    reverb.setSampleRate (sampleRate);
+    // Setting the sample rate after the parameters makes the reverb start at
+    // its settings instead of gliding to them from wherever it was before.
     lastSize = lastDamping = lastMix = -1.0f;
     update();
+    reverb.setSampleRate (sampleRate);
     reset();
 }
 

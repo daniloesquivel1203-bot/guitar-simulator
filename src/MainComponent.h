@@ -47,20 +47,29 @@ private:
     juce::Slider outputGain;
     juce::ToggleButton muteButton { "Mute" };
 
-    /** One entry per tile in the chain strip, in signal order. */
-    struct ChainBlock
-    {
-        juce::String shortName;
-        Parameter* enabled;
-        std::function<std::unique_ptr<TonePanel>()> makePanel;
-    };
-
-    void buildChain();
+    /** Redraws the strip from the board. The selection stays on the same block
+        if it still exists, otherwise on the tile at `fallbackIndex`, otherwise the amp. */
+    void rebuildChain (int fallbackIndex = -1);
     void selectBlock (int index);
+    void selectAmp();
     void showTuner();
+    void showAddMenu (Pedalboard::Side, juce::Rectangle<int> screenArea);
+    void showPedalMenu (int tile);
+    void removePedal (Pedalboard::Side, int index);
 
-    std::vector<ChainBlock> chainBlocks;
+    /** One per tile in the chain strip, in signal order. Empty for + tiles. */
+    std::vector<std::function<std::unique_ptr<TonePanel>()>> panelMakers;
+
+    /** Keeps the pedal behind the open panel alive, even after a preset has replaced it. */
+    std::vector<std::shared_ptr<Pedal>> tilePedals;
+    std::shared_ptr<Pedal> panelPedal;
     ChainStrip chainStrip;
+
+    /** Identify blocks across rebuilds by their on/off switch: the one that
+        should be selected, and the one whose panel is showing. */
+    Parameter* selectedBlock = nullptr;
+    Parameter* panelBlock = nullptr;
+    bool showingTuner = false;
     std::unique_ptr<TonePanel> detailPanel;
 
     int ticksSinceStatusRefresh = 0;

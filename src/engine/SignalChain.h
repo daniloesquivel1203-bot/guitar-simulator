@@ -2,11 +2,8 @@
 
 #include "AmpModel.h"
 #include "Cabinet.h"
+#include "Pedalboard.h"
 #include "SafetyLimiter.h"
-#include "effects/Drives.h"
-#include "effects/Dynamics.h"
-#include "effects/Equaliser.h"
-#include "effects/TimeEffects.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -16,9 +13,10 @@
 /** The audio path from one mono input to a stereo output.
 
     This class has no knowledge of audio devices, so it can be tested offline.
-    The order is: input trim, noise gate, compressor, overdrive, distortion,
-    amp, cabinet, EQ, then in stereo chorus, delay, reverb, output level and
-    safety limiter.
+    The order is: input trim, the pedals before the amp, amp, cabinet, the
+    pedals after the amp, output level and safety limiter. A new chain has the
+    V1 pedals in the V1 order: gate, compressor, overdrive, distortion before
+    the amp, and EQ, chorus, delay, reverb after it.
 
     process() runs on the audio thread and never allocates or locks. The
     setters and meter readers may be called from any thread.
@@ -34,6 +32,8 @@ public:
     /** A raw input sample at or above this magnitude counts as clipping. */
     static constexpr float clipThreshold = 0.999f;
 
+    SignalChain();
+
     void prepare (double sampleRate, int maxBlockSize);
     void reset();
 
@@ -44,21 +44,22 @@ public:
     AmpModel& getAmp() noexcept        { return amp; }
     Cabinet& getCabinet() noexcept     { return cabinet; }
 
-    NoiseGate& getNoiseGate() noexcept     { return noiseGate; }
-    Compressor& getCompressor() noexcept   { return compressor; }
-    Overdrive& getOverdrive() noexcept     { return overdrive; }
-    Distortion& getDistortion() noexcept   { return distortion; }
-    Equaliser& getEqualiser() noexcept     { return equaliser; }
-    Chorus& getChorus() noexcept           { return chorus; }
-    Delay& getDelay() noexcept             { return delay; }
-    Reverb& getReverb() noexcept           { return reverb; }
+    Pedalboard& getBoard() noexcept    { return board; }
 
-    /** The pedals before the amp and after the cabinet, in signal order. */
-    std::vector<MonoEffect*> getPreEffects()       { return { &noiseGate, &compressor, &overdrive, &distortion }; }
-    std::vector<MonoEffect*> getPostMonoEffects()  { return { &equaliser }; }
-    std::vector<StereoEffect*> getStereoEffects()  { return { &chorus, &delay, &reverb }; }
+    /** The first pedal of a given kind on the board, or nullptr. */
+    template <typename EffectType>
+    EffectType* findPedal()
+    {
+        for (auto side : { Pedalboard::beforeAmp, Pedalboard::afterAmp })
+            for (auto& pedal : board.getPedals (side))
+                if (auto* found = dynamic_cast<EffectType*> (&pedal->getEffect()))
+                    return found;
 
-    /** Every parameter in the chain, for saving and restoring. */
+        return nullptr;
+    }
+
+    /** Every parameter in the chain in signal order: the pedals before the amp,
+        the amp, the cabinet, then the pedals after the amp. */
     std::vector<Parameter*> getAllParameters();
 
     void setInputGainDb (float db) noexcept;
@@ -81,16 +82,9 @@ public:
 private:
     void processChunk (const float* input, float* left, float* right, int numSamples) noexcept;
 
-    NoiseGate noiseGate;
-    Compressor compressor;
-    Overdrive overdrive;
-    Distortion distortion;
+    Pedalboard board;
     AmpModel amp;
     Cabinet cabinet;
-    Equaliser equaliser;
-    Chorus chorus;
-    Delay delay;
-    Reverb reverb;
     SafetyLimiter limiter;
 
     std::vector<float> scratch = std::vector<float> (512);
