@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "ui/AudioSettingsPanel.h"
+#include "ui/PracticePanel.h"
 #include "ui/Theme.h"
 #include "ui/TunerPanel.h"
 
@@ -32,6 +33,10 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     tunerButton.setTooltip ("Show the tuner.");
     tunerButton.onClick = [this] { showTuner(); };
     addAndMakeVisible (tunerButton);
+
+    practiceButton.setTooltip ("Metronome, looper and recording.");
+    practiceButton.onClick = [this] { showPractice(); };
+    addAndMakeVisible (practiceButton);
 
     chainStrip.onSelect = [this] (int index) { selectBlock (index); };
     chainStrip.onToggle = [this] (int index)
@@ -139,6 +144,8 @@ void MainComponent::resized()
     settingsButton.setBounds (topRow.removeFromRight (130));
     topRow.removeFromRight (8);
     tunerButton.setBounds (topRow.removeFromRight (80));
+    topRow.removeFromRight (8);
+    practiceButton.setBounds (topRow.removeFromRight (90));
     topRow.removeFromRight (24);
     title.setBounds (topRow.removeFromLeft (200));
     presetBar.setBounds (topRow.removeFromRight (juce::jmin (420, topRow.getWidth())));
@@ -243,7 +250,7 @@ void MainComponent::rebuildChain (int fallbackIndex)
 
     chainStrip.setTiles (tiles);
 
-    if (showingTuner)
+    if (showingTuner || showingPractice)
     {
         chainStrip.setSelected (-1);
         return;
@@ -286,8 +293,9 @@ void MainComponent::selectBlock (int index)
 
     chainStrip.setSelected (index);
     selectedBlock = panelBlock = chainStrip.getTiles()[(size_t) index].enabled;
-    showingTuner = false;
+    showingTuner = showingPractice = false;
     tunerButton.setToggleState (false, juce::dontSendNotification);
+    practiceButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();   // closes the tuner first, if it was open
     panelPedal = tilePedals[(size_t) index];
     detailPanel = panelMakers[(size_t) index]();
@@ -328,7 +336,7 @@ void MainComponent::showAddMenu (Pedalboard::Side side, juce::Rectangle<int> scr
                             {
                                 // Open the new pedal's panel, even if the tuner was showing.
                                 safe->selectedBlock = &pedal->getEffect().enabled;
-                                safe->showingTuner = false;
+                                safe->showingTuner = safe->showingPractice = false;
                                 safe->rebuildChain();
                             }
                         });
@@ -402,10 +410,34 @@ void MainComponent::showTuner()
     chainStrip.setSelected (-1);
     selectedBlock = panelBlock = nullptr;
     showingTuner = true;
+    showingPractice = false;
     tunerButton.setToggleState (true, juce::dontSendNotification);
+    practiceButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();
     panelPedal.reset();
     detailPanel = std::make_unique<TunerPanel> (engine);
+    addAndMakeVisible (*detailPanel);
+    resized();
+}
+
+void MainComponent::showPractice()
+{
+    // Pressing the button again goes back to the amp. The tools keep running.
+    if (showingPractice)
+    {
+        selectAmp();
+        return;
+    }
+
+    chainStrip.setSelected (-1);
+    selectedBlock = panelBlock = nullptr;
+    showingPractice = true;
+    showingTuner = false;
+    practiceButton.setToggleState (true, juce::dontSendNotification);
+    tunerButton.setToggleState (false, juce::dontSendNotification);
+    detailPanel.reset();
+    panelPedal.reset();
+    detailPanel = std::make_unique<PracticePanel> (engine);
     addAndMakeVisible (*detailPanel);
     resized();
 }
@@ -420,6 +452,14 @@ void MainComponent::timerCallback()
     auto& chain = engine.getChain();
     inputMeter.update (chain.readInputPeak(), chain.readInputClipped());
     outputMeter.update (chain.readOutputPeak(), false);
+
+    // Shows when the metronome, looper or recorder is running behind another panel.
+    const auto practiceText = PracticePanel::isBusy (engine.getPractice()) && ! showingPractice
+                                  ? juce::String::fromUTF8 ("Practice \xe2\x80\xa2")
+                                  : juce::String ("Practice");
+
+    if (practiceButton.getButtonText() != practiceText)
+        practiceButton.setButtonText (practiceText);
 
     // Keeps the tile lights in step with switches changed in the panel below.
     chainStrip.repaint();

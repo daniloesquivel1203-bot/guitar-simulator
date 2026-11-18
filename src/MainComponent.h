@@ -36,6 +36,7 @@ private:
     juce::Label detailLine;
     PresetBar presetBar;
     juce::TextButton tunerButton { "Tuner" };
+    juce::TextButton practiceButton { "Practice" };
     juce::TextButton settingsButton { "Audio settings" };
 
     juce::Label inputHeading { {}, "INPUT" };
@@ -53,6 +54,7 @@ private:
     void selectBlock (int index);
     void selectAmp();
     void showTuner();
+    void showPractice();
     void showAddMenu (Pedalboard::Side, juce::Rectangle<int> screenArea);
     void showPedalMenu (int tile);
     void removePedal (Pedalboard::Side, int index);
@@ -70,6 +72,7 @@ private:
     Parameter* selectedBlock = nullptr;
     Parameter* panelBlock = nullptr;
     bool showingTuner = false;
+    bool showingPractice = false;
     std::unique_ptr<TonePanel> detailPanel;
 
     int ticksSinceStatusRefresh = 0;

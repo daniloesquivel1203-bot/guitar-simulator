@@ -53,6 +53,27 @@ more than once.
 The names describe a style of sound, not a particular product. Presets store
 each pedal by a fixed key, so presets made with fewer pedals keep loading.
 
+## Practice tools
+
+Click **Practice** at the top to open the metronome, looper and recorder. They
+keep running when you switch to another panel, and a dot on the Practice
+button shows that something is still on.
+
+- **Metronome:** Start, set the tempo (or tap it with **Tap** four times or
+  more), and choose the beats per bar. The first beat of the bar is a higher
+  click unless you untick the accent. The click is only heard, never looped
+  or recorded.
+- **Looper:** works like a looper pedal with one main button. Press
+  **Record**, play a phrase, then press **Play** at the moment it should
+  start repeating. Press **Overdub** to add a layer on top and **Play** to
+  keep it. **Undo** takes back the last layer, **Stop** pauses, **Clear**
+  throws the loop away. Loops can be up to 90 seconds and record the sound
+  you hear, pedals and amp included.
+- **Record to WAV:** each take saves two files in
+  `Documents\Guitar Simulator\Recordings`: the sound you hear (with the loop,
+  without the click), and a `(dry)` file with the plain guitar exactly as it
+  came in, so it can be played back through a different sound later.
+
 ## Build on Windows
 
 ### One-time setup

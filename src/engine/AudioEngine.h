@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Practice.h"
 #include "Presets.h"
 #include "SignalChain.h"
 #include "Tuner.h"
@@ -46,6 +47,10 @@ public:
     SignalChain& getChain() noexcept                        { return chain; }
     PresetManager& getPresets() noexcept                    { return presets; }
     TunerTap& getTunerTap() noexcept                        { return tunerTap; }
+    PracticeTools& getPractice() noexcept                   { return practice; }
+
+    /** The app's settings file, for panels that remember their own choices. */
+    juce::PropertiesFile& getSettings() noexcept            { return settings; }
 
     /** The tuner's remembered choices: which tuning, and which string (-1 = pick automatically). */
     int getTunerTuning() const          { return settings.getIntValue ("tuner.tuning", 0); }
@@ -99,6 +104,7 @@ private:
     SignalChain chain;
     PresetManager presets;
     TunerTap tunerTap;
+    PracticeTools practice;
 
     std::atomic<int> inputChannel { 0 };
 

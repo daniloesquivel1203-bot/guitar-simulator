@@ -30,6 +30,7 @@ target_sources(GuitarSimulator
         src/engine/AudioEngine.cpp
         src/engine/Cabinet.cpp
         src/engine/Pedalboard.cpp
+        src/engine/Practice.cpp
         src/engine/Presets.cpp
         src/engine/SignalChain.cpp
         src/engine/Tuner.cpp
@@ -44,6 +45,7 @@ target_sources(GuitarSimulator
         src/engine/effects/Reverbs.cpp
         src/engine/effects/TimeEffects.cpp
         src/ui/AudioSettingsPanel.cpp
+        src/ui/PracticePanel.cpp
         src/ui/PresetBar.cpp
         src/ui/Theme.cpp
         src/ui/TonePanels.cpp
@@ -92,6 +94,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/AmpModel.cpp
             src/engine/Cabinet.cpp
             src/engine/Pedalboard.cpp
+            src/engine/Practice.cpp
             src/engine/Presets.cpp
             src/engine/SignalChain.cpp
             src/engine/Tuner.cpp
@@ -112,6 +115,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/PedalLibraryTests.cpp
             tests/PedalboardTests.cpp
             tests/PerformanceTests.cpp
+            tests/PracticeTests.cpp
             tests/PresetTests.cpp
             tests/TunerTests.cpp
             tests/SafetyLimiterTests.cpp
