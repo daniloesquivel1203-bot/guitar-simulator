@@ -196,7 +196,9 @@ EffectPanel::EffectPanel (Effect& effect, std::function<void()> onRemove)
 
     for (auto* control : effect.getControls())
     {
-        if (control->isSwitch())
+        if (control->isChoice())
+            addAndMakeVisible (choices.add (new ParameterChoice (*control)));
+        else if (control->isSwitch())
             addAndMakeVisible (switches.add (new ParameterToggle (*control)));
         else
             addAndMakeVisible (knobs.add (new ParameterKnob (*control)));
@@ -212,11 +214,16 @@ void EffectPanel::resized()
 
     auto area = getContentArea();
 
-    // Switches sit in a column on the right, and the knobs are centred in what is left.
-    if (! switches.isEmpty())
+    // Choices and switches sit in a column on the right, and the knobs are
+    // centred in what is left.
+    if (! switches.isEmpty() || ! choices.isEmpty())
     {
         auto column = area.removeFromRight (150);
-        column = column.withSizeKeepingCentre (column.getWidth(), switches.size() * 32);
+        column = column.withSizeKeepingCentre (column.getWidth(),
+                                               choices.size() * ParameterChoice::preferredHeight + switches.size() * 32);
+
+        for (auto* choice : choices)
+            choice->setBounds (column.removeFromTop (ParameterChoice::preferredHeight).withTrimmedBottom (4));
 
         for (auto* toggle : switches)
             toggle->setBounds (column.removeFromTop (32).reduced (0, 3));

@@ -34,6 +34,25 @@ Windows. The More button next to the preset list opens that folder.
 Settings are remembered between launches. If the interface is unplugged, the
 app waits and reconnects when it returns.
 
+## Pedal library
+
+Click a **+** tile on either side of the amp to add a pedal. The menu groups
+them by kind. Up to 8 pedals fit on each side, and the same pedal can be added
+more than once.
+
+| Group | Pedals |
+| --- | --- |
+| Dynamics | Noise Gate, Compressor, Opto Compressor (slow, smooth leveling), Clean Boost, Auto Swell (fades each note in) |
+| Drive | Treble Booster, Blues Drive (low gain, open), Overdrive (mid hump), Distortion, Metal Distortion (with its own 3-band EQ), Vintage Fuzz (with a Bias knob for sputter), Sustain Fuzz (scooped, singing), Octave Fuzz, Bit Crusher |
+| Filter | EQ, Graphic EQ (7 bands), Wah (manual or automatic), Envelope Filter (auto-wah), Vowel Filter (talking) |
+| Modulation | Chorus, Flanger, Phaser (4 to 12 stages), Vibe, Vibrato, Tremolo (classic, harmonic or pan), Rotary Speaker, Ring Modulator |
+| Pitch | Octaver (one and two octaves down, one up), Pitch Shifter, Detune (stereo doubler) |
+| Delay | Delay (digital, with ping-pong), Tape Echo, Analog Delay, Reverse Delay |
+| Reverb | Room Reverb, Spring Reverb, Plate Reverb, Hall Reverb, Shimmer Reverb |
+
+The names describe a style of sound, not a particular product. Presets store
+each pedal by a fixed key, so presets made with fewer pedals keep loading.
+
 ## Build on Windows
 
 ### One-time setup

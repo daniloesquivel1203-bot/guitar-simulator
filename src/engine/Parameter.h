@@ -3,6 +3,8 @@
 #include <juce_core/juce_core.h>
 
 #include <atomic>
+#include <initializer_list>
+#include <vector>
 
 /** One user-adjustable value: a knob, a switch or a choice.
 
@@ -22,6 +24,15 @@ public:
     {
     }
 
+    /** A choice between named options, such as a waveform. The value is the
+        index of the chosen option. */
+    Parameter (const char* idToUse, const char* nameToUse, std::initializer_list<const char*> choiceNames,
+               int defaultIndex = 0)
+        : Parameter (idToUse, nameToUse, 0.0f, (float) choiceNames.size() - 1.0f, (float) defaultIndex, 1.0f)
+    {
+        choices.assign (choiceNames.begin(), choiceNames.end());
+    }
+
     float get() const noexcept              { return value.load (std::memory_order_relaxed); }
     bool isOn() const noexcept              { return get() >= 0.5f; }
     int getIndex() const noexcept           { return juce::roundToInt (get()); }
@@ -37,10 +48,14 @@ public:
     const bool logarithmic;
 
     /** A switch is a parameter with only the values 0 and 1. */
-    bool isSwitch() const noexcept   { return juce::exactlyEqual (minValue, 0.0f) && juce::exactlyEqual (maxValue, 1.0f)
+    bool isSwitch() const noexcept   { return choices.empty() && juce::exactlyEqual (minValue, 0.0f) && juce::exactlyEqual (maxValue, 1.0f)
                                               && juce::exactlyEqual (step, 1.0f); }
 
+    bool isChoice() const noexcept                         { return ! choices.empty(); }
+    const std::vector<const char*>& getChoices() const noexcept   { return choices; }
+
 private:
+    std::vector<const char*> choices;
     std::atomic<float> value;
 
     JUCE_DECLARE_NON_COPYABLE (Parameter)

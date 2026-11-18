@@ -2,7 +2,14 @@
 
 #include "effects/Drives.h"
 #include "effects/Dynamics.h"
+#include "effects/Echoes.h"
 #include "effects/Equaliser.h"
+#include "effects/Filters.h"
+#include "effects/Modulation.h"
+#include "effects/MoreDrives.h"
+#include "effects/MoreDynamics.h"
+#include "effects/Pitch.h"
+#include "effects/Reverbs.h"
 #include "effects/TimeEffects.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -23,10 +30,14 @@ struct PedalType
     /** The label on the pedal's tile. */
     const char* shortName;
 
+    /** The group the add menu lists it under, such as "Drive" or "Reverb". */
+    const char* category;
+
     std::function<std::unique_ptr<Effect>()> create;
 };
 
-/** Every kind of pedal, in the order the add menu lists them. */
+/** Every kind of pedal, grouped by category in the order the add menu lists
+    them. Presets store the key, so the order can change freely. */
 const std::vector<PedalType>& getPedalTypes();
 
 /** Returns nullptr when there is no pedal of that kind, for example in a

@@ -25,7 +25,12 @@ protected:
     /** Distorts a block that has been upsampled to 4x. */
     virtual void shape (float* samples, int numSamples) noexcept = 0;
 
+    /** The cutoff of the low-pass tone control. Return 0 for pedals that
+        shape their tone in postShape() instead. */
     virtual float getToneHz() const noexcept = 0;
+
+    /** Runs at the device rate after the distortion, before the level control. */
+    virtual void postShape (float*, int) noexcept {}
     virtual float getLevelKnob() const noexcept = 0;
 
 private:

@@ -66,3 +66,40 @@ public:
 private:
     Parameter& parameter;
 };
+
+/** A drop-down list bound to one choice Parameter, with a caption above it. */
+class ParameterChoice final : public juce::Component
+{
+public:
+    explicit ParameterChoice (Parameter& parameterToUse)
+        : parameter (parameterToUse)
+    {
+        const auto& names = parameter.getChoices();
+
+        for (int i = 0; i < (int) names.size(); ++i)
+            box.addItem (names[(size_t) i], i + 1);
+
+        box.setSelectedId (parameter.getIndex() + 1, juce::dontSendNotification);
+        box.onChange = [this] { parameter.set ((float) (box.getSelectedId() - 1)); };
+        addAndMakeVisible (box);
+
+        caption.setText (parameter.name, juce::dontSendNotification);
+        caption.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        caption.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
+        addAndMakeVisible (caption);
+    }
+
+    static constexpr int preferredHeight = 46;
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        caption.setBounds (area.removeFromTop (18));
+        box.setBounds (area.removeFromTop (26));
+    }
+
+private:
+    Parameter& parameter;
+    juce::ComboBox box;
+    juce::Label caption;
+};
