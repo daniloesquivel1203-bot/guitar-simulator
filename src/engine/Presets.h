@@ -38,11 +38,13 @@ public:
         Returns false if the value is not a preset at all. */
     static bool apply (SignalChain& chain, const juce::var& preset);
 
-    /** Turns a name typed by the user into one that is safe as a file name. */
+    /** Turns a name typed by the user into one that is safe as a file name.
+        "Folder/Name" keeps one folder level, so presets can be grouped. */
     static juce::String cleanName (const juce::String& name);
 
     //==============================================================================
     juce::StringArray getFactoryNames() const;
+    /** User presets, with those in a folder named "Folder/Name". */
     juce::StringArray getUserNames() const;
     juce::File getUserFolder() const   { return userFolder; }
 
@@ -63,7 +65,13 @@ public:
 
 private:
     juce::File getFile (const juce::String& name) const;
+    void removeFolderIfEmpty (const juce::File& folder) const;
+
+public:
+    /** The current state as text, for comparing states and for undo. */
     juce::String snapshot() const;
+
+private:
 
     SignalChain& chain;
     juce::File userFolder;

@@ -53,6 +53,33 @@ more than once.
 The names describe a style of sound, not a particular product. Presets store
 each pedal by a fixed key, so presets made with fewer pedals keep loading.
 
+### Order matters
+
+As on a real board, where a pedal sits changes how it sounds:
+
+- **Vintage Fuzz, Octave Fuzz and Treble Booster** like to be first. Straight
+  from the guitar (nothing switched on in front of them) they sound warm and
+  round; behind another pedal that is on, they sound thinner and spikier.
+- **Compressor** in front of a drive evens out what the drive hears; after it,
+  it only levels a sound that is already distorted.
+- **Noise Gate** in front of a drive silences hiss between notes; after a
+  drive it has to fight the amplified hiss.
+- **Wah and Envelope Filter** sound vocal in front of a drive and more
+  extreme after it. An envelope filter after a drive reacts less to how hard
+  you pick, because the drive has already evened out your playing.
+- Time and EQ pedals (EQ, chorus, delay, reverb) mostly sound the same in any
+  order, as on a real board, except delay and reverb in front of a drive,
+  where the repeats get distorted too.
+
+## Comfort
+
+- **Undo and redo** (Ctrl+Z, Ctrl+Y) cover every knob, switch and pedal move.
+- **A / B** in the header keeps two versions of your sound to flip between.
+  B starts as a copy of A; right-click either to copy one onto the other.
+- **Preset folders:** save a preset as `Folder/Name` to file it in a folder.
+  Folders show as submenus in the preset list.
+- **Find a preset:** Ctrl+F, or More > Find a preset.
+
 ## Build on Windows
 
 ### One-time setup
@@ -108,6 +135,12 @@ cmake -B build -DGUITAR_SIMULATOR_BUILD_TESTS=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
+
+Two hidden tests help with tuning by ear. `GuitarSimulatorTests "[soundlab]"`
+prints how much each pedal changes the level and how different each pedal
+order sounds. With the `GS_LISTEN_DIR` environment variable set to a folder,
+`GuitarSimulatorTests "[listen]"` writes WAV files of each order comparison
+there.
 
 ## Tech
 

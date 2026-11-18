@@ -213,7 +213,8 @@ TEST_CASE ("preset problems are reported instead of failing silently")
 TEST_CASE ("preset names are made safe for use as file names")
 {
     REQUIRE (PresetManager::cleanName ("  My Sound  ") == "My Sound");
-    REQUIRE (PresetManager::cleanName ("a/b\\c:d*e?") == "abcde");
+    REQUIRE (PresetManager::cleanName ("a:b*c?d") == "abcd");
+    REQUIRE (PresetManager::cleanName ("a/b\\c:d*e?") == "a b/cde");   // one folder level at most
     REQUIRE (PresetManager::cleanName ("../../escape") .containsChar ('/') == false);
     REQUIRE (PresetManager::cleanName (juce::String::repeatedString ("x", 200)).length() <= 60);
 

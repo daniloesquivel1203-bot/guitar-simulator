@@ -106,6 +106,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/effects/Reverbs.cpp
             src/engine/effects/TimeEffects.cpp
             tests/AmpModelTests.cpp
+            tests/ComfortTests.cpp
             tests/CabinetTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp

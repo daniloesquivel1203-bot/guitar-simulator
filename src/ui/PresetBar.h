@@ -16,8 +16,11 @@ public:
 
     void resized() override;
 
+    /** Opens a search box listing every preset whose name contains what you type. */
+    void showFinder();
+
 private:
-    enum MenuIds { saveAsId = 1, renameId, deleteId, openFolderId };
+    enum MenuIds { saveAsId = 1, renameId, deleteId, findId, openFolderId };
 
     void timerCallback() override;
 
