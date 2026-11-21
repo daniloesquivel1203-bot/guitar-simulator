@@ -141,8 +141,10 @@ TEST_CASE ("the library has many pedals, each with a unique key, name and parame
             REQUIRE (parameter->defaultValue <= parameter->maxValue);
         }
 
-        // The panel has room for this many controls.
-        REQUIRE (pedal.getEffect().getControls().size() <= 8);
+        // The panel has room for this many controls. The Custom pedal has its
+        // own panel, which shows only the selected block's controls.
+        if (juce::String (type.key) != "custom")
+            REQUIRE (pedal.getEffect().getControls().size() <= 8);
     }
 
     REQUIRE (categories.size() >= 7);

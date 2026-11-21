@@ -244,9 +244,9 @@ void MainComponent::rebuildChain (int fallbackIndex)
             tilePedals.push_back (pedal);
 
             // The panel's Remove button works on whichever position the pedal has by then.
-            panelMakers.push_back ([this, pedal]
+            panelMakers.push_back ([this, pedal]() -> std::unique_ptr<TonePanel>
             {
-                return std::make_unique<EffectPanel> (pedal->getEffect(), [this, weak = std::weak_ptr<Pedal> (pedal)]
+                auto onRemove = [this, weak = std::weak_ptr<Pedal> (pedal)]
                 {
                     juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this), weak]
                     {
@@ -264,7 +264,13 @@ void MainComponent::rebuildChain (int fallbackIndex)
                                     return safe->removePedal (s, index);
                         }
                     });
-                });
+                };
+
+                // The Custom pedal has its own panel, with its blocks and their controls.
+                if (auto* custom = dynamic_cast<CustomPedal*> (&pedal->getEffect()))
+                    return std::make_unique<CustomPedalPanel> (*custom, std::move (onRemove));
+
+                return std::make_unique<EffectPanel> (pedal->getEffect(), std::move (onRemove));
             });
         }
 

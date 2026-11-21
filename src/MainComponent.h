@@ -3,6 +3,7 @@
 #include "engine/AudioEngine.h"
 #include "engine/ToneHistory.h"
 #include "ui/ChainStrip.h"
+#include "ui/CustomPedalPanel.h"
 #include "ui/LevelMeter.h"
 #include "ui/PresetBar.h"
 #include "ui/TonePanels.h"

@@ -8,12 +8,14 @@
 class ParameterKnob final : public juce::Component
 {
 public:
-    explicit ParameterKnob (Parameter& parameterToUse)
+    /** `captionToUse` replaces the parameter's own name above the knob. */
+    explicit ParameterKnob (Parameter& parameterToUse, const juce::String& captionToUse = {})
         : parameter (parameterToUse)
     {
         slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 84, 20);
-        slider.setTooltip (juce::String (parameter.name) + ". Drag up or down, scroll, or type a value. Double-click to reset.");
+        const auto label = captionToUse.isNotEmpty() ? captionToUse : juce::String (parameter.name);
+        slider.setTooltip (label + ". Drag up or down, scroll, or type a value. Double-click to reset.");
         slider.setRange (parameter.minValue, parameter.maxValue, parameter.step);
         slider.setTextValueSuffix (parameter.unit);
         slider.setDoubleClickReturnValue (true, parameter.defaultValue);
@@ -25,7 +27,7 @@ public:
         slider.onValueChange = [this] { parameter.set ((float) slider.getValue()); };
         addAndMakeVisible (slider);
 
-        caption.setText (parameter.name, juce::dontSendNotification);
+        caption.setText (label, juce::dontSendNotification);
         caption.setJustificationType (juce::Justification::centred);
         caption.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         caption.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
@@ -71,7 +73,7 @@ private:
 class ParameterChoice final : public juce::Component
 {
 public:
-    explicit ParameterChoice (Parameter& parameterToUse)
+    explicit ParameterChoice (Parameter& parameterToUse, const juce::String& captionToUse = {})
         : parameter (parameterToUse)
     {
         const auto& names = parameter.getChoices();
@@ -83,7 +85,7 @@ public:
         box.onChange = [this] { parameter.set ((float) (box.getSelectedId() - 1)); };
         addAndMakeVisible (box);
 
-        caption.setText (parameter.name, juce::dontSendNotification);
+        caption.setText (captionToUse.isNotEmpty() ? captionToUse : juce::String (parameter.name), juce::dontSendNotification);
         caption.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         caption.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
         addAndMakeVisible (caption);
