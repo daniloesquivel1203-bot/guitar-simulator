@@ -202,7 +202,8 @@ TEST_CASE ("the pedalboard hands its tempo to the delays")
     for (size_t offset = 0; offset < left.size(); offset += (size_t) blockSize)
     {
         board.beginChunk();
-        board.processAfterAmp (left.data() + offset, right.data() + offset, blockSize);
+        board.processAfterAmp (left.data() + offset, right.data() + offset,
+                               (int) juce::jmin ((size_t) blockSize, left.size() - offset));
     }
 
     REQUIRE (firstEcho (left) == msToSamples (400.0));
