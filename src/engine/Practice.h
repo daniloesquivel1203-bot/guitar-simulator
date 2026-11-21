@@ -119,6 +119,30 @@ public:
     int getLength() const noexcept         { return loopLength.load(); }
     int getPosition() const noexcept       { return position.load(); }
 
+    // A picture of each layer, for display. The audio is still one mixed loop.
+    // Lane 0 is the first recording. Once every lane is in use, the oldest
+    // overdub is folded into lane 0 to make room.
+    static constexpr int maxLayerLanes = 8;
+    static constexpr int layerBins = 240;
+
+    int getNumLayerLanes() const noexcept  { return numLanes.load (std::memory_order_acquire); }
+
+    /** How many earlier overdubs have been folded into lane 0. */
+    int getNumFoldedLayers() const noexcept  { return foldedLayers.load(); }
+
+    /** All the layers in the loop, including any folded into lane 0. */
+    int getNumLayers() const noexcept      { return getNumLayerLanes() + getNumFoldedLayers(); }
+
+    /** How many bins of each lane hold data: all of them, except while the
+        first pass is being recorded. */
+    int getNumLayerBinsFilled() const noexcept  { return binsFilled.load (std::memory_order_acquire); }
+
+    /** The loudest absolute sample in one slice of a lane. Safe from any thread. */
+    float getLayerPeak (int lane, int bin) const noexcept
+    {
+        return layerPeaks[(size_t) lane][(size_t) bin].load (std::memory_order_relaxed);
+    }
+
     /** Records `inLeft`/`inRight` as the loop requires and adds the loop's
         playback to `outLeft`/`outRight`. All four may alias each other. */
     void process (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int numSamples) noexcept;
@@ -132,6 +156,13 @@ private:
     void finishFirstRecording() noexcept;
     void finishOverdub() noexcept;
     void undoLastOverdub() noexcept;
+
+    void resetLayers() noexcept;
+    void clearLane (int lane) noexcept;
+    void beginOverdubLayer() noexcept;
+    void noteRecordedPeak (float peak) noexcept;
+    void noteOverdubPeak (float peak) noexcept;
+    void stretchRecordedLayer() noexcept;
 
     juce::AbstractFifo commandFifo { 64 };
     std::array<Command, 64> commands {};
@@ -160,6 +191,19 @@ private:
     // An undo in progress: the samples still to copy back from `backup`.
     int restoreStart = 0;
     int restoreCount = 0;
+
+    // Whether undo was available before the overdub in progress, so an overdub
+    // that recorded nothing can leave things as they were.
+    bool undoBeforeOverdub = false;
+
+    std::array<std::array<std::atomic<float>, layerBins>, maxLayerLanes> layerPeaks {};
+    std::atomic<int> numLanes { 0 };
+    std::atomic<int> foldedLayers { 0 };
+    std::atomic<int> binsFilled { 0 };
+
+    // The first pass has no known length yet, so each bin starts small and
+    // doubles in width whenever the bins run out.
+    int samplesPerRecordedBin = 1;
 
     juce::SmoothedValue<float> level { 1.0f };
 };

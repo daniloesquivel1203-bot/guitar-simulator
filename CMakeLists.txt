@@ -92,6 +92,7 @@ target_sources(GuitarSimulator
         src/engine/effects/Reverbs.cpp
         src/engine/effects/TimeEffects.cpp
         src/ui/AudioSettingsPanel.cpp
+        src/ui/LooperLayersView.cpp
         src/ui/PracticePanel.cpp
         src/ui/PresetBar.cpp
         src/ui/Theme.cpp

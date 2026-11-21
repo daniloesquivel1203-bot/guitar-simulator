@@ -21,6 +21,11 @@ juce::String formatTime (double seconds)
     return juce::String (whole / 60) + ":" + juce::String (whole % 60).paddedLeft ('0', 2);
 }
 
+juce::String layersText (int layers)
+{
+    return juce::String (layers) + (layers == 1 ? " layer" : " layers");
+}
+
 void styleHorizontalSlider (juce::Slider& slider, double min, double max, double step, const juce::String& suffix,
                             double value, double resetValue)
 {
@@ -56,7 +61,8 @@ bool PracticePanel::isBusy (PracticeTools& tools)
 }
 
 PracticePanel::PracticePanel (AudioEngine& engineToUse)
-    : TonePanel ("PRACTICE"), engine (engineToUse), tools (engine.getPractice())
+    : TonePanel ("PRACTICE"), engine (engineToUse), tools (engine.getPractice()),
+      layersView (tools.getLooper())
 {
     applySettings();
 
@@ -158,6 +164,7 @@ PracticePanel::PracticePanel (AudioEngine& engineToUse)
         settings.setValue (loopLevelKey, loopLevel.getValue());
     };
     addAndMakeVisible (loopLevel);
+    addAndMakeVisible (layersView);
 
     // Recorder
     recordButton.setClickingTogglesState (false);
@@ -210,13 +217,15 @@ void PracticePanel::applySettings()
 void PracticePanel::resized()
 {
     auto content = getContentArea();
-    const auto columnWidth = (content.getWidth() - 2 * 16) / 3;
 
-    metronomeArea = content.removeFromLeft (columnWidth);
+    // The looper gets the widest column, to fit its layers.
+    const auto sideWidth = (content.getWidth() - 2 * 16) * 27 / 100;
+
+    metronomeArea = content.removeFromLeft (sideWidth);
     content.removeFromLeft (16);
-    looperArea = content.removeFromLeft (columnWidth);
-    content.removeFromLeft (16);
-    recorderArea = content;
+    recorderArea = content.removeFromRight (sideWidth);
+    content.removeFromRight (16);
+    looperArea = content;
 
     const auto inner = [] (juce::Rectangle<int> column) { return column.reduced (12).withTrimmedTop (22); };
 
@@ -247,10 +256,11 @@ void PracticePanel::resized()
     // Looper
     {
         auto area = inner (looperArea);
-        loopButton.setBounds (area.removeFromTop (bigRowHeight));
-        area.removeFromTop (gap);
 
-        auto row = area.removeFromTop (rowHeight);
+        // The buttons share one row, which leaves the height for the layers.
+        auto row = area.removeFromTop (bigRowHeight - 4);
+        loopButton.setBounds (row.removeFromLeft (row.getWidth() * 2 / 5));
+        row.removeFromLeft (gap);
         const auto third = (row.getWidth() - 2 * gap) / 3;
         stopButton.setBounds (row.removeFromLeft (third));
         row.removeFromLeft (gap);
@@ -258,14 +268,18 @@ void PracticePanel::resized()
         row.removeFromLeft (gap);
         clearButton.setBounds (row);
 
-        area.removeFromTop (gap + 4);
-        loopBarArea = area.removeFromTop (10);
-        area.removeFromTop (gap);
-
-        auto levelRow = area.removeFromBottom (rowHeight);
+        area.removeFromTop (4);
+        auto levelRow = area.removeFromTop (rowHeight);
         loopLevelLabel.setBounds (levelRow.removeFromLeft (56));
         loopLevel.setBounds (levelRow);
-        loopStatus.setBounds (area);
+
+        loopStatus.setBounds (area.removeFromBottom (36));
+        area.removeFromBottom (4);
+
+        area.removeFromTop (4);
+        loopBarArea = area.removeFromTop (6);
+        area.removeFromTop (4);
+        layersView.setBounds (area);
     }
 
     // Recorder
@@ -354,6 +368,7 @@ void PracticePanel::timerCallback()
     refreshLooper();
     refreshRecorder();
     repaint (loopBarArea);
+    layersView.repaint();
 }
 
 void PracticePanel::refreshMetronome()
@@ -392,19 +407,22 @@ void PracticePanel::refreshLooper()
         case Looper::State::playing:
             action = "Overdub";
             colour = Theme::warning.darker (0.3f);
-            text = "Playing a " + juce::String (seconds, 1) + " s loop.\nPress Overdub to add a layer.";
+            text = "Playing a " + juce::String (seconds, 1) + " s loop, " + layersText (looper.getNumLayers())
+                   + ".\nPress Overdub to add a layer.";
             break;
 
         case Looper::State::overdubbing:
             action = "Play";
             colour = Theme::good.darker (0.3f);
-            text = "Overdubbing. Press Play to keep the layer, or Undo to drop it.";
+            text = "Overdubbing layer " + juce::String (looper.getNumLayers())
+                   + ". Press Play to keep it, or Undo to drop it.";
             break;
 
         case Looper::State::stopped:
             action = "Play";
             colour = Theme::good.darker (0.3f);
-            text = "Stopped. The " + juce::String (seconds, 1) + " s loop is kept.";
+            text = "Stopped. The " + juce::String (seconds, 1) + " s loop and its "
+                   + layersText (looper.getNumLayers()) + " are kept.";
             break;
     }
 

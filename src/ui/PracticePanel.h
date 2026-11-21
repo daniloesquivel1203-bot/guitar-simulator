@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../engine/AudioEngine.h"
+#include "LooperLayersView.h"
 #include "TonePanels.h"
 
 /** The practice tools: a metronome with tap tempo, a looper, and a recorder
@@ -55,6 +56,7 @@ private:
     juce::Label loopStatus;
     juce::Label loopLevelLabel { {}, "Level" };
     juce::Slider loopLevel;
+    LooperLayersView layersView;
 
     // Recorder
     juce::TextButton recordButton { "Record take" };

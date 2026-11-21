@@ -146,6 +146,96 @@ void Looper::prepare (double newSampleRate)
     loopLength.store (0);
     position.store (0);
     undoAvailable.store (false);
+    resetLayers();
+}
+
+void Looper::resetLayers() noexcept
+{
+    numLanes.store (0, std::memory_order_release);
+    foldedLayers.store (0);
+    binsFilled.store (0, std::memory_order_release);
+    samplesPerRecordedBin = 1;
+
+    for (int lane = 0; lane < maxLayerLanes; ++lane)
+        clearLane (lane);
+}
+
+void Looper::clearLane (int lane) noexcept
+{
+    for (auto& peak : layerPeaks[(size_t) lane])
+        peak.store (0.0f, std::memory_order_relaxed);
+}
+
+void Looper::beginOverdubLayer() noexcept
+{
+    auto lanes = numLanes.load();
+
+    if (lanes >= maxLayerLanes)
+    {
+        // Fold the oldest overdub into the first lane and move the others up.
+        for (int bin = 0; bin < layerBins; ++bin)
+            layerPeaks[0][(size_t) bin].store (juce::jmax (getLayerPeak (0, bin), getLayerPeak (1, bin)),
+                                               std::memory_order_relaxed);
+
+        for (int lane = 1; lane < maxLayerLanes - 1; ++lane)
+            for (int bin = 0; bin < layerBins; ++bin)
+                layerPeaks[(size_t) lane][(size_t) bin].store (getLayerPeak (lane + 1, bin), std::memory_order_relaxed);
+
+        foldedLayers.fetch_add (1);
+        lanes = maxLayerLanes - 1;
+    }
+
+    clearLane (lanes);
+    numLanes.store (lanes + 1, std::memory_order_release);
+}
+
+void Looper::noteRecordedPeak (float peak) noexcept
+{
+    auto bin = pos / samplesPerRecordedBin;
+
+    if (bin >= layerBins)
+    {
+        // Out of bins: halve the detail so the recording fits again.
+        auto& lane = layerPeaks[0];
+
+        for (int b = 0; b < layerBins / 2; ++b)
+            lane[(size_t) b].store (juce::jmax (getLayerPeak (0, 2 * b), getLayerPeak (0, 2 * b + 1)),
+                                    std::memory_order_relaxed);
+
+        for (int b = layerBins / 2; b < layerBins; ++b)
+            lane[(size_t) b].store (0.0f, std::memory_order_relaxed);
+
+        samplesPerRecordedBin *= 2;
+        bin = pos / samplesPerRecordedBin;
+    }
+
+    auto& slot = layerPeaks[0][(size_t) bin];
+
+    if (peak > slot.load (std::memory_order_relaxed))
+        slot.store (peak, std::memory_order_relaxed);
+
+    binsFilled.store (bin + 1, std::memory_order_release);
+}
+
+void Looper::noteOverdubPeak (float peak) noexcept
+{
+    const auto bin = (size_t) ((juce::int64) pos * layerBins / length);
+    auto& slot = layerPeaks[(size_t) numLanes.load (std::memory_order_relaxed) - 1][bin];
+
+    if (peak > slot.load (std::memory_order_relaxed))
+        slot.store (peak, std::memory_order_relaxed);
+}
+
+void Looper::stretchRecordedLayer() noexcept
+{
+    // Spread the bins in use across the whole lane, so a bin's place matches
+    // its place in the loop. Going backwards never reads a bin already written.
+    const auto used = juce::jmax (1, binsFilled.load());
+
+    for (int target = layerBins - 1; target >= 0; --target)
+        layerPeaks[0][(size_t) target].store (getLayerPeak (0, target * used / layerBins), std::memory_order_relaxed);
+
+    binsFilled.store (layerBins, std::memory_order_release);
 }
 
 void Looper::post (Command command)
@@ -210,6 +300,8 @@ void Looper::handle (Command command) noexcept
             {
                 pos = length = 0;
                 undoAvailable.store (false);
+                resetLayers();
+                numLanes.store (1, std::memory_order_release);
                 state.store (State::recording);
             }
             else if (current == State::recording)
@@ -220,7 +312,9 @@ void Looper::handle (Command command) noexcept
             {
                 overdubStart = pos;
                 overdubCount = 0;
+                undoBeforeOverdub = undoAvailable.load();
                 undoAvailable.store (true);
+                beginOverdubLayer();
                 state.store (State::overdubbing);
             }
             else if (current == State::overdubbing)
@@ -263,6 +357,7 @@ void Looper::handle (Command command) noexcept
             pos = length = 0;
             lastOverdubCount = restoreCount = 0;
             undoAvailable.store (false);
+            resetLayers();
             state.store (State::empty);
             break;
     }
@@ -277,9 +372,12 @@ void Looper::finishFirstRecording() noexcept
     {
         // Too short to be a loop, most likely a double press.
         length = 0;
+        resetLayers();
         state.store (State::empty);
         return;
     }
+
+    stretchRecordedLayer();
 
     // Fade the ends a little so the seam does not click.
     const auto fade = juce::jmin (length / 4, (int) (loopEdgeFadeSeconds * sampleRate));
@@ -300,6 +398,14 @@ void Looper::finishFirstRecording() noexcept
 
 void Looper::finishOverdub() noexcept
 {
+    if (overdubCount == 0)
+    {
+        // Nothing was recorded, so there is no new layer to show or undo.
+        numLanes.fetch_sub (1, std::memory_order_acq_rel);
+        undoAvailable.store (undoBeforeOverdub);
+        return;
+    }
+
     // The samples that this overdub changed, which undo puts back.
     lastOverdubStart = overdubStart;
     lastOverdubCount = overdubCount;
@@ -310,6 +416,9 @@ void Looper::undoLastOverdub() noexcept
     restoreStart = lastOverdubStart;
     restoreCount = lastOverdubCount;
     lastOverdubCount = 0;
+
+    if (numLanes.load() > 1)
+        numLanes.fetch_sub (1, std::memory_order_acq_rel);
 }
 
 void Looper::process (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int numSamples) noexcept
@@ -333,6 +442,7 @@ void Looper::process (const float* inLeft, const float* inRight, float* outLeft,
         {
             loop[0][(size_t) pos] = inL;
             loop[1][(size_t) pos] = inR;
+            noteRecordedPeak (juce::jmax (std::abs (inL), std::abs (inR)));
 
             if (++pos >= capacity)
                 reachedEnd = true;
@@ -362,6 +472,7 @@ void Looper::process (const float* inLeft, const float* inRight, float* outLeft,
 
             sampleL += inL;
             sampleR += inR;
+            noteOverdubPeak (juce::jmax (std::abs (inL), std::abs (inR)));
 
             if (++pos >= length)
                 pos = 0;

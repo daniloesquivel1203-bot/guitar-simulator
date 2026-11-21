@@ -295,6 +295,106 @@ TEST_CASE ("the looper works in place on a single mono output")
     REQUIRE_THAT (live[12000], WithinAbs (0.4, 1.0e-6));
 }
 
+TEST_CASE ("the looper keeps a picture of each layer")
+{
+    Looper looper;
+    looper.prepare (rate);
+    REQUIRE (looper.getNumLayers() == 0);
+
+    // The first pass fills the whole first lane.
+    looper.pressMain();
+    runLooper (looper, constant (0.25f, 24000));
+    REQUIRE (looper.getNumLayerLanes() == 1);
+    looper.pressMain();
+    runLooper (looper, constant (0.0f, 12000));   // playing; halfway through
+    REQUIRE (looper.getNumLayerBinsFilled() == Looper::layerBins);
+
+    for (int bin = 0; bin < Looper::layerBins; ++bin)
+        REQUIRE_THAT (looper.getLayerPeak (0, bin), WithinAbs (0.25, 1.0e-6));
+
+    // An overdub over the second half only marks that half of its own lane.
+    looper.pressMain();
+    runLooper (looper, constant (0.5f, 12000));
+    looper.pressMain();
+    runLooper (looper, constant (0.0f, 640));
+    REQUIRE (looper.getState() == Looper::State::playing);
+    REQUIRE (looper.getNumLayers() == 2);
+    REQUIRE (juce::exactlyEqual (looper.getLayerPeak (1, Looper::layerBins / 4), 0.0f));
+    REQUIRE_THAT (looper.getLayerPeak (1, Looper::layerBins * 3 / 4), WithinAbs (0.5, 1.0e-6));
+    REQUIRE_THAT (looper.getLayerPeak (0, Looper::layerBins * 3 / 4), WithinAbs (0.25, 1.0e-6));
+
+    // Undo removes that lane, and clear removes them all.
+    looper.pressUndo();
+    runLooper (looper, constant (0.0f, 4800));
+    REQUIRE (looper.getNumLayers() == 1);
+
+    looper.pressClear();
+    runLooper (looper, constant (0.0f, 640));
+    REQUIRE (looper.getNumLayers() == 0);
+    REQUIRE (looper.getNumLayerBinsFilled() == 0);
+}
+
+TEST_CASE ("an overdub that recorded nothing adds no layer and keeps the last undo")
+{
+    Looper looper;
+    looper.prepare (rate);
+
+    looper.pressMain();
+    runLooper (looper, constant (0.25f, 24000));
+    looper.pressMain();
+    looper.pressMain();
+    runLooper (looper, constant (0.1f, 6000));
+    looper.pressMain();
+    runLooper (looper, constant (0.0f, 640));
+    REQUIRE (looper.getNumLayers() == 2);
+    REQUIRE (looper.canUndo());
+
+    // Overdub on and off inside one audio block.
+    looper.pressMain();
+    looper.pressMain();
+    runLooper (looper, constant (0.0f, 640));
+    REQUIRE (looper.getState() == Looper::State::playing);
+    REQUIRE (looper.getNumLayers() == 2);
+    REQUIRE (looper.canUndo());
+
+    looper.pressUndo();
+    runLooper (looper, constant (0.0f, 4800));
+    REQUIRE (looper.getNumLayers() == 1);
+
+    const auto played = runLooper (looper, constant (0.0f, 24000));
+    REQUIRE_THAT (test::peak (played), WithinAbs (0.25, 1.0e-5));
+}
+
+TEST_CASE ("once every lane is in use, the oldest overdub folds into the first")
+{
+    Looper looper;
+    looper.prepare (rate);
+
+    looper.pressMain();
+    runLooper (looper, constant (0.1f, 24000));
+    looper.pressMain();
+
+    const auto overdubs = Looper::maxLayerLanes + 2;
+
+    for (int layer = 0; layer < overdubs; ++layer)
+    {
+        looper.pressMain();
+        runLooper (looper, constant (0.01f * (float) (layer + 1), 2400));
+        looper.pressMain();
+        runLooper (looper, constant (0.0f, 640));
+    }
+
+    REQUIRE (looper.getNumLayerLanes() == Looper::maxLayerLanes);
+    REQUIRE (looper.getNumFoldedLayers() == 3);
+    REQUIRE (looper.getNumLayers() == overdubs + 1);
+
+    // Undo still takes back the newest layer.
+    looper.pressUndo();
+    runLooper (looper, constant (0.0f, 4800));
+    REQUIRE (looper.getNumLayers() == overdubs);
+    REQUIRE (looper.getNumLayerLanes() == Looper::maxLayerLanes - 1);
+}
+
 //==============================================================================
 TEST_CASE ("the take recorder writes the sound and the dry guitar to WAV files")
 {
