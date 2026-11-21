@@ -50,6 +50,7 @@ private:
 
     // Looper
     juce::TextButton loopButton { "Record" };
+    juce::TextButton overdubButton { "Overdub" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton clearButton { "Clear" };

@@ -133,11 +133,15 @@ PracticePanel::PracticePanel (AudioEngine& engineToUse)
     // Looper
     auto& looper = tools.getLooper();
 
-    loopButton.setTooltip ("Press to record a phrase, press again to loop it, then press to add layers on top.");
+    loopButton.setTooltip ("Press to record a phrase, then press Play to start it looping.");
     loopButton.onClick = [&looper] { looper.pressMain(); };
     addAndMakeVisible (loopButton);
 
-    stopButton.setTooltip ("Stops the loop. The main button plays it again from the start.");
+    overdubButton.setTooltip ("Starts adding a new layer on top of the loop. Press again to keep it.");
+    overdubButton.onClick = [&looper] { looper.pressOverdub(); };
+    addAndMakeVisible (overdubButton);
+
+    stopButton.setTooltip ("Stops the loop. Play starts it again from the beginning.");
     stopButton.onClick = [&looper] { looper.pressStop(); };
     addAndMakeVisible (stopButton);
 
@@ -259,7 +263,10 @@ void PracticePanel::resized()
 
         // The buttons share one row, which leaves the height for the layers.
         auto row = area.removeFromTop (bigRowHeight - 4);
-        loopButton.setBounds (row.removeFromLeft (row.getWidth() * 2 / 5));
+        const auto mainWidth = (row.getWidth() - 4 * gap) * 27 / 100;
+        loopButton.setBounds (row.removeFromLeft (mainWidth));
+        row.removeFromLeft (gap);
+        overdubButton.setBounds (row.removeFromLeft (mainWidth));
         row.removeFromLeft (gap);
         const auto third = (row.getWidth() - 2 * gap) / 3;
         stopButton.setBounds (row.removeFromLeft (third));
@@ -401,12 +408,12 @@ void PracticePanel::refreshLooper()
         case Looper::State::recording:
             action = "Play";
             colour = Theme::good.darker (0.3f);
-            text = "Recording  " + juce::String (seconds, 1) + " s\nPress Play to close the loop.";
+            text = "Recording  " + juce::String (seconds, 1) + " s\nPress Play to loop it, or Overdub to loop and keep playing.";
             break;
 
         case Looper::State::playing:
-            action = "Overdub";
-            colour = Theme::warning.darker (0.3f);
+            action = "Playing";
+            colour = Theme::good.darker (0.3f);
             text = "Playing a " + juce::String (seconds, 1) + " s loop, " + layersText (looper.getNumLayers())
                    + ".\nPress Overdub to add a layer.";
             break;
@@ -415,7 +422,7 @@ void PracticePanel::refreshLooper()
             action = "Play";
             colour = Theme::good.darker (0.3f);
             text = "Overdubbing layer " + juce::String (looper.getNumLayers())
-                   + ". Press Play to keep it, or Undo to drop it.";
+                   + ". Press Overdub or Play to keep it, or Undo to drop it.";
             break;
 
         case Looper::State::stopped:
@@ -435,6 +442,12 @@ void PracticePanel::refreshLooper()
         loopStatus.setText (text, juce::dontSendNotification);
 
     const bool hasLoop = state != Looper::State::empty;
+    loopButton.setEnabled (state != Looper::State::playing);
+    overdubButton.setEnabled (hasLoop);
+    overdubButton.setColour (juce::TextButton::buttonColourId,
+                             state == Looper::State::overdubbing ? Theme::warning : Theme::warning.darker (0.75f));
+    overdubButton.setColour (juce::TextButton::textColourOffId,
+                             state == Looper::State::overdubbing ? Theme::sunken : juce::Colours::white);
     stopButton.setEnabled (hasLoop && state != Looper::State::stopped);
     clearButton.setEnabled (hasLoop);
     undoButton.setEnabled (looper.canUndo());

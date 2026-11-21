@@ -84,10 +84,11 @@ private:
 /** A looper pedal: record a phrase, then it repeats while you play over it,
     and each overdub layers on top. Records the processed sound.
 
-    The single main button cycles record, play, overdub, play, like a looper
-    pedal. Commands are queued from the message thread and run at the start of
-    the next audio block, so process() never locks. Memory for the longest
-    loop is set aside in prepare().
+    The main button records and then plays. Overdub is a button of its own, so
+    a second press of Play can never start recording by accident. Commands are
+    queued from the message thread and run at the start of the next audio
+    block, so process() never locks. Memory for the longest loop is set aside
+    in prepare().
 */
 class Looper
 {
@@ -103,7 +104,15 @@ public:
     void prepare (double sampleRate);
 
     // Message thread.
+    /** Record, close the loop, end an overdub, or play again after a stop.
+        Does nothing while the loop is already playing. */
     void pressMain()   { post (Command::main); }
+
+    /** Starts or ends an overdub. While the first pass is recording, this closes
+        the loop and goes straight into an overdub; after a stop, it plays from
+        the start and overdubs. Does nothing until there is a loop. */
+    void pressOverdub()  { post (Command::overdub); }
+
     void pressStop()   { post (Command::stop); }
     void pressUndo()   { post (Command::undo); }
     void pressClear()  { post (Command::clear); }
@@ -162,7 +171,7 @@ public:
     void process (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int numSamples) noexcept;
 
 private:
-    enum class Command { main, stop, undo, clear, removeLayer };
+    enum class Command { main, overdub, stop, undo, clear, removeLayer };
     enum class SlotUse { free, layer, fading, folding, clearing };
 
     struct Message

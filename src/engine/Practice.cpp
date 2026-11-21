@@ -218,7 +218,12 @@ int Looper::findFreeSlot() const noexcept
 bool Looper::needsFreeSlot (const Message& message) const noexcept
 {
     const auto current = state.load();
-    return message.command == Command::main && (current == State::empty || current == State::playing);
+
+    if (message.command == Command::main)
+        return current == State::empty;
+
+    return message.command == Command::overdub
+           && (current == State::recording || current == State::playing || current == State::stopped);
 }
 
 void Looper::doBackgroundWork() noexcept
@@ -329,6 +334,27 @@ void Looper::handle (const Message& message) noexcept
             {
                 finishFirstRecording();
             }
+            else if (current == State::overdubbing)
+            {
+                finishOverdub();
+                state.store (State::playing);
+            }
+            else if (current == State::stopped)
+            {
+                pos = 0;
+                state.store (State::playing);
+            }
+            break;
+
+        case Command::overdub:
+            if (current == State::recording)
+            {
+                finishFirstRecording();
+
+                // A recording too short to keep leaves nothing to overdub on.
+                if (state.load() == State::playing)
+                    beginOverdub();
+            }
             else if (current == State::playing)
             {
                 beginOverdub();
@@ -341,7 +367,7 @@ void Looper::handle (const Message& message) noexcept
             else if (current == State::stopped)
             {
                 pos = 0;
-                state.store (State::playing);
+                beginOverdub();
             }
             break;
 
