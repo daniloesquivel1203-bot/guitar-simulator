@@ -24,6 +24,15 @@ public:
     const char* const name;
     Parameter enabled;
 
+    /** Audio thread. Tells the pedal whether it hears the guitar's pickups
+        directly, with nothing switched on in front of it. Some old fuzz and
+        booster circuits load the pickups and sound warmer and fuller that way,
+        and thinner and harsher behind another pedal, as real ones do. */
+    void setFedByGuitar (bool isFedByGuitar) noexcept   { fedByGuitar = isFedByGuitar; }
+
+protected:
+    bool isFedByGuitar() const noexcept   { return fedByGuitar; }
+
 protected:
     /** Call at the top of process(). Returns false when the pedal is off, and
         clears stale state when it has just been switched on. */
@@ -46,6 +55,7 @@ protected:
 
 private:
     bool wasOn = false;
+    bool fedByGuitar = false;
 };
 
 /** A pedal placed before the amp or cabinet, where the signal is mono. */

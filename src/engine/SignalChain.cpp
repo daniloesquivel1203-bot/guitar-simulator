@@ -35,6 +35,7 @@ void SignalChain::prepare (double sampleRate, int maxBlockSize)
 
     board.prepare (sampleRate, blockSize);
     amp.prepare (sampleRate, blockSize);
+    capture.prepare (sampleRate, blockSize);
     cabinet.prepare (sampleRate, blockSize);
     limiter.prepare (sampleRate);
     reset();
@@ -53,6 +54,7 @@ std::vector<Parameter*> SignalChain::getAllParameters()
 
     addSide (Pedalboard::beforeAmp);
     for (auto* parameter : amp.getParameters()) all.push_back (parameter);
+    for (auto* parameter : capture.getParameters()) all.push_back (parameter);
     for (auto* parameter : cabinet.getParameters()) all.push_back (parameter);
     addSide (Pedalboard::afterAmp);
 
@@ -63,6 +65,7 @@ void SignalChain::reset()
 {
     board.reset();
     amp.reset();
+    capture.reset();
     cabinet.reset();
     limiter.reset();
 
@@ -115,7 +118,11 @@ void SignalChain::processChunk (const float* input, float* left, float* right, i
     }
 
     board.processBeforeAmp (mono, numSamples);
-    amp.process (mono, numSamples);
+    // The amp's On switch covers both the built-in model and a capture.
+    if (capture.isInUse() && amp.enabled.isOn())
+        capture.process (mono, numSamples);
+    else
+        amp.process (mono, numSamples);
     cabinet.process (mono, numSamples);
 
     // The board turns the signal into stereo.

@@ -6,6 +6,7 @@ const juce::Identifier nameKey { "name" };
 const juce::Identifier formatKey { "format" };
 const juce::Identifier parametersKey { "parameters" };
 const juce::Identifier cabinetKey { "cabinet" };
+const juce::Identifier captureKey { "ampCapture" };
 const juce::Identifier versionKey { "version" };
 const juce::Identifier boardKey { "board" };
 const juce::Identifier typeKey { "type" };
@@ -149,9 +150,29 @@ std::vector<Parameter*> getAmpAndCabinetParameters (SignalChain& chain)
     std::vector<Parameter*> parameters;
 
     for (auto* parameter : chain.getAmp().getParameters())       parameters.push_back (parameter);
+    for (auto* parameter : chain.getCapture().getParameters())   parameters.push_back (parameter);
     for (auto* parameter : chain.getCabinet().getParameters())   parameters.push_back (parameter);
 
     return parameters;
+}
+
+/** True when a version 2 board lists exactly the pedals the chain has, in the same order. */
+bool hasSameLayout (SignalChain& chain, const juce::var& board)
+{
+    for (auto side : { Pedalboard::beforeAmp, Pedalboard::afterAmp })
+    {
+        const auto& pedals = chain.getBoard().getPedals (side);
+        const auto* entries = board[sideKeys[(size_t) side]].getArray();
+
+        if (entries == nullptr || entries->size() != (int) pedals.size())
+            return false;
+
+        for (size_t i = 0; i < pedals.size(); ++i)
+            if ((*entries)[(int) i][typeKey].toString() != pedals[i]->type.key)
+                return false;
+    }
+
+    return true;
 }
 
 juce::var makeFactoryVar (const FactoryPreset& preset)
@@ -201,6 +222,8 @@ juce::var PresetManager::capture (SignalChain& chain, const juce::String& name)
     root->setProperty (nameKey, name);
     root->setProperty (parametersKey, captureValues (getAmpAndCabinetParameters (chain)));
     root->setProperty (cabinetKey, chain.getCabinet().getSourceDescription());
+    root->setProperty (captureKey, chain.getCapture().isLoaded() ? chain.getCapture().getLoadedFile().getFullPathName()
+                                                                 : juce::String());
     root->setProperty (boardKey, juce::var (board.release()));
     return juce::var (root.release());
 }
@@ -213,49 +236,110 @@ bool PresetManager::apply (SignalChain& chain, const juce::var& preset)
     const auto& values = preset[parametersKey];
     applyValues (getAmpAndCabinetParameters (chain), values);
 
-    Pedalboard::PedalList before, after;
     const auto& board = preset[boardKey];
 
-    if (board.isObject())
+    // When the preset has the same pedals in the same order as the board, the
+    // knobs are simply turned on the pedals already there. Nothing is rebuilt,
+    // so there is no fade and delay and reverb tails carry on. This is what
+    // makes undo and A/B switching seamless.
+    if (board.isObject() && hasSameLayout (chain, board))
     {
-        // Version 2: each side lists its pedals in order, each with its own settings.
         for (auto side : { Pedalboard::beforeAmp, Pedalboard::afterAmp })
         {
-            auto& list = side == Pedalboard::beforeAmp ? before : after;
+            const auto& pedals = chain.getBoard().getPedals (side);
+            const auto* entries = board[sideKeys[(size_t) side]].getArray();
 
-            if (const auto* entries = board[sideKeys[(size_t) side]].getArray())
-            {
-                for (const auto& entry : *entries)
-                {
-                    // A pedal this version does not know is skipped.
-                    if (const auto* type = findPedalType (entry[typeKey].toString()))
-                    {
-                        auto pedal = std::make_shared<Pedal> (*type);
-                        applyValues (pedal->getParameters(), entry[parametersKey]);
-                        list.push_back (std::move (pedal));
-                    }
-                }
-            }
+            for (size_t i = 0; i < pedals.size(); ++i)
+                applyValues (pedals[i]->getParameters(), (*entries)[(int) i][parametersKey]);
         }
     }
     else
     {
-        // Version 1 had a fixed chain, with every pedal's settings in one list.
-        Pedalboard::makeClassicLayout (before, after);
+        Pedalboard::PedalList before, after;
 
-        for (auto* list : { &before, &after })
-            for (auto& pedal : *list)
-                applyValues (pedal->getParameters(), values);
+        if (board.isObject())
+        {
+            // Version 2: each side lists its pedals in order, each with its own settings.
+            for (auto side : { Pedalboard::beforeAmp, Pedalboard::afterAmp })
+            {
+                auto& list = side == Pedalboard::beforeAmp ? before : after;
+
+                if (const auto* entries = board[sideKeys[(size_t) side]].getArray())
+                {
+                    for (const auto& entry : *entries)
+                    {
+                        // A pedal this version does not know is skipped.
+                        if (const auto* type = findPedalType (entry[typeKey].toString()))
+                        {
+                            auto pedal = std::make_shared<Pedal> (*type);
+                            applyValues (pedal->getParameters(), entry[parametersKey]);
+                            list.push_back (std::move (pedal));
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Version 1 had a fixed chain, with every pedal's settings in one list.
+            Pedalboard::makeClassicLayout (before, after);
+
+            for (auto* list : { &before, &after })
+                for (auto& pedal : *list)
+                    applyValues (pedal->getParameters(), values);
+        }
+
+        chain.getBoard().setPedals (std::move (before), std::move (after));
     }
 
-    chain.getBoard().setPedals (std::move (before), std::move (after));
-    chain.getCabinet().restoreFromDescription (preset[cabinetKey].toString());
+    // Reloading a cabinet file is slow and briefly interrupts it, so only do it when it changed.
+    if (const auto cabinet = preset[cabinetKey].toString(); cabinet != chain.getCabinet().getSourceDescription())
+        chain.getCabinet().restoreFromDescription (cabinet);
+
+    // A preset without a capture, or whose capture file has gone missing, uses the built-in amp.
+    // Like the cabinet, an unchanged capture is left alone so undo and A/B stay seamless.
+    const auto capturePath = preset[captureKey].toString();
+    auto& capture = chain.getCapture();
+
+    if (capturePath.isEmpty() || ! juce::File::isAbsolutePath (capturePath))
+    {
+        if (capture.isLoaded())
+            capture.unload();
+    }
+    else if (! capture.isLoaded() || capture.getLoadedFile() != juce::File (capturePath))
+    {
+        if (capture.loadFile (juce::File (capturePath)).isNotEmpty())
+            capture.unload();
+    }
+
     return true;
 }
 
 juce::String PresetManager::cleanName (const juce::String& name)
 {
-    return juce::File::createLegalFileName (name.trim()).trim().substring (0, 60).trim();
+    // "Folder/Name" files a preset in a folder. Each part is cleaned on its own.
+    juce::StringArray parts;
+
+    for (auto part : juce::StringArray::fromTokens (name, "/\\", {}))
+    {
+        part = juce::File::createLegalFileName (part.trim()).trim().substring (0, 60).trim();
+
+        // Dots alone would climb out of the presets folder.
+        while (part.startsWithChar ('.'))
+            part = part.substring (1).trim();
+
+        if (part.isNotEmpty())
+            parts.add (part);
+    }
+
+    // At most one folder deep, which keeps the preset list easy to read.
+    while (parts.size() > 2)
+    {
+        parts.set (0, parts[0] + " " + parts[1]);
+        parts.remove (1);
+    }
+
+    return parts.joinIntoString ("/");
 }
 
 //==============================================================================
@@ -273,8 +357,13 @@ juce::StringArray PresetManager::getUserNames() const
 {
     juce::StringArray names;
 
+    // Presets directly in the folder, and one level of subfolders.
     for (const auto& file : userFolder.findChildFiles (juce::File::findFiles, false, juce::String ("*") + fileExtension))
         names.add (file.getFileNameWithoutExtension());
+
+    for (const auto& folder : userFolder.findChildFiles (juce::File::findDirectories, false))
+        for (const auto& file : folder.findChildFiles (juce::File::findFiles, false, juce::String ("*") + fileExtension))
+            names.add (folder.getFileName() + "/" + file.getFileNameWithoutExtension());
 
     names.sortNatural();
     return names;
@@ -282,7 +371,20 @@ juce::StringArray PresetManager::getUserNames() const
 
 juce::File PresetManager::getFile (const juce::String& name) const
 {
-    return userFolder.getChildFile (cleanName (name) + fileExtension);
+    const auto cleaned = cleanName (name);
+
+    if (cleaned.containsChar ('/'))
+        return userFolder.getChildFile (cleaned.upToFirstOccurrenceOf ("/", false, false))
+                         .getChildFile (cleaned.fromFirstOccurrenceOf ("/", false, false) + fileExtension);
+
+    return userFolder.getChildFile (cleaned + fileExtension);
+}
+
+void PresetManager::removeFolderIfEmpty (const juce::File& folder) const
+{
+    if (folder != userFolder && folder.isAChildOf (userFolder)
+        && folder.getNumberOfChildFiles (juce::File::findFilesAndDirectories) == 0)
+        folder.deleteFile();
 }
 
 juce::String PresetManager::snapshot() const
@@ -339,8 +441,8 @@ juce::String PresetManager::saveUser (const juce::String& name)
     if (cleaned.isEmpty())
         return "Please give the preset a name.";
 
-    if (! userFolder.createDirectory())
-        return "The presets folder could not be created at " + userFolder.getFullPathName() + ".";
+    if (! getFile (cleaned).getParentDirectory().createDirectory())
+        return "The presets folder could not be created at " + getFile (cleaned).getParentDirectory().getFullPathName() + ".";
 
     if (! getFile (cleaned).replaceWithText (juce::JSON::toString (capture (chain, cleaned))))
         return "The preset could not be written to " + getFile (cleaned).getFullPathName() + ".";
@@ -378,8 +480,13 @@ juce::String PresetManager::renameUser (const juce::String& oldName, const juce:
 
     parsed.getDynamicObject()->setProperty (nameKey, cleaned);
 
-    if (! source.moveFileTo (getFile (cleaned)) || ! getFile (cleaned).replaceWithText (juce::JSON::toString (parsed)))
+    const auto destination = getFile (cleaned);
+
+    if (! destination.getParentDirectory().createDirectory()
+        || ! source.moveFileTo (destination) || ! destination.replaceWithText (juce::JSON::toString (parsed)))
         return "The preset could not be renamed.";
+
+    removeFolderIfEmpty (source.getParentDirectory());
 
     if (! current.isFactory && current.name == cleanName (oldName))
         current.name = cleaned;
@@ -396,6 +503,8 @@ juce::String PresetManager::deleteUser (const juce::String& name)
 
     if (! file.deleteFile())
         return "The preset file could not be deleted.";
+
+    removeFolderIfEmpty (file.getParentDirectory());
 
     if (! current.isFactory && current.name == cleanName (name))
         current = {};

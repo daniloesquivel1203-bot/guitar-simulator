@@ -42,11 +42,11 @@ class Compressor final : public MonoEffect
 public:
     Compressor() : MonoEffect ("Compressor", "comp.enabled") {}
 
-    Parameter threshold { "comp.threshold", "Threshold", -50.0f, 0.0f,    -20.0f, 0.5f, " dB" };
+    Parameter threshold { "comp.threshold", "Threshold", -50.0f, 0.0f,    -28.0f, 0.5f, " dB" };
     Parameter ratio     { "comp.ratio",     "Ratio",     1.0f,   20.0f,   4.0f,   0.1f, ":1", true };
     Parameter attack    { "comp.attack",    "Attack",    1.0f,   100.0f,  10.0f,  0.1f, " ms", true };
     Parameter release   { "comp.release",   "Release",   20.0f,  1000.0f, 150.0f, 1.0f, " ms", true };
-    Parameter makeup    { "comp.makeup",    "Makeup",    0.0f,   24.0f,   0.0f,   0.1f, " dB" };
+    Parameter makeup    { "comp.makeup",    "Makeup",    0.0f,   24.0f,   6.0f,   0.1f, " dB" };
 
     std::vector<Parameter*> getControls() override   { return { &threshold, &ratio, &attack, &release, &makeup }; }
 

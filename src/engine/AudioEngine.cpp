@@ -257,6 +257,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
 
     chain.process (guitar, left, right, numSamples);
 
+    // The looper, take recorder and metronome work on the finished sound.
+    practice.process (guitar, left, right, numSamples, chain.isMuted());
+
     for (int channel = 2; channel < numOutputChannels; ++channel)
         juce::FloatVectorOperations::clear (outputChannelData[channel], numSamples);
 }
@@ -264,6 +267,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
 void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
     chain.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
+    practice.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
     deviceErrored.store (false);
 
     // Channel layout may have changed. Resolve it again before audio starts.

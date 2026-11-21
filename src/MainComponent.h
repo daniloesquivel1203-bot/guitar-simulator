@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/AudioEngine.h"
+#include "engine/ToneHistory.h"
 #include "ui/ChainStrip.h"
 #include "ui/LevelMeter.h"
 #include "ui/PresetBar.h"
@@ -20,6 +21,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;
 
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -35,7 +37,30 @@ private:
     juce::Label statusLine;
     juce::Label detailLine;
     PresetBar presetBar;
+    juce::TextButton undoButton { "Undo" }, redoButton { "Redo" };
+    /** A button that also offers a menu on right-click, instead of clicking. */
+    struct SlotButton final : public juce::TextButton
+    {
+        using juce::TextButton::TextButton;
+        std::function<void()> onRightClick;
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) { if (onRightClick != nullptr) onRightClick(); return; }
+            juce::TextButton::mouseDown (e);
+        }
+
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            if (! e.mods.isPopupMenu())
+                juce::TextButton::mouseUp (e);
+        }
+    };
+
+    SlotButton slotAButton { "A" }, slotBButton { "B" };
+    void showSlotMenu (juce::Component& target);
     juce::TextButton tunerButton { "Tuner" };
+    juce::TextButton practiceButton { "Practice" };
     juce::TextButton settingsButton { "Audio settings" };
 
     juce::Label inputHeading { {}, "INPUT" };
@@ -53,6 +78,7 @@ private:
     void selectBlock (int index);
     void selectAmp();
     void showTuner();
+    void showPractice();
     void showAddMenu (Pedalboard::Side, juce::Rectangle<int> screenArea);
     void showPedalMenu (int tile);
     void removePedal (Pedalboard::Side, int index);
@@ -70,9 +96,26 @@ private:
     Parameter* selectedBlock = nullptr;
     Parameter* panelBlock = nullptr;
     bool showingTuner = false;
+    bool showingPractice = false;
     std::unique_ptr<TonePanel> detailPanel;
 
     int ticksSinceStatusRefresh = 0;
+
+    //==============================================================================
+    /** Undo, redo and A/B compare all work by applying a saved state. */
+    void applyState (const juce::String& state);
+    void undo();
+    void redo();
+    void switchSlot (int slot);
+    void refreshHistoryButtons();
+
+    ToneHistory history;
+    int ticksSinceHistoryCheck = 0;
+
+    /** The two sounds being compared. The active one is the live sound; the
+        other is kept here until you switch back to it. */
+    std::array<juce::String, 2> slots;
+    int activeSlot = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
