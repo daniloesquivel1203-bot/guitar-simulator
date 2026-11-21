@@ -6,6 +6,7 @@ const juce::Identifier nameKey { "name" };
 const juce::Identifier formatKey { "format" };
 const juce::Identifier parametersKey { "parameters" };
 const juce::Identifier cabinetKey { "cabinet" };
+const juce::Identifier captureKey { "ampCapture" };
 const juce::Identifier versionKey { "version" };
 const juce::Identifier boardKey { "board" };
 const juce::Identifier typeKey { "type" };
@@ -149,6 +150,7 @@ std::vector<Parameter*> getAmpAndCabinetParameters (SignalChain& chain)
     std::vector<Parameter*> parameters;
 
     for (auto* parameter : chain.getAmp().getParameters())       parameters.push_back (parameter);
+    for (auto* parameter : chain.getCapture().getParameters())   parameters.push_back (parameter);
     for (auto* parameter : chain.getCabinet().getParameters())   parameters.push_back (parameter);
 
     return parameters;
@@ -220,6 +222,8 @@ juce::var PresetManager::capture (SignalChain& chain, const juce::String& name)
     root->setProperty (nameKey, name);
     root->setProperty (parametersKey, captureValues (getAmpAndCabinetParameters (chain)));
     root->setProperty (cabinetKey, chain.getCabinet().getSourceDescription());
+    root->setProperty (captureKey, chain.getCapture().isLoaded() ? chain.getCapture().getLoadedFile().getFullPathName()
+                                                                 : juce::String());
     root->setProperty (boardKey, juce::var (board.release()));
     return juce::var (root.release());
 }
@@ -291,6 +295,22 @@ bool PresetManager::apply (SignalChain& chain, const juce::var& preset)
     // Reloading a cabinet file is slow and briefly interrupts it, so only do it when it changed.
     if (const auto cabinet = preset[cabinetKey].toString(); cabinet != chain.getCabinet().getSourceDescription())
         chain.getCabinet().restoreFromDescription (cabinet);
+
+    // A preset without a capture, or whose capture file has gone missing, uses the built-in amp.
+    // Like the cabinet, an unchanged capture is left alone so undo and A/B stay seamless.
+    const auto capturePath = preset[captureKey].toString();
+    auto& capture = chain.getCapture();
+
+    if (capturePath.isEmpty() || ! juce::File::isAbsolutePath (capturePath))
+    {
+        if (capture.isLoaded())
+            capture.unload();
+    }
+    else if (! capture.isLoaded() || capture.getLoadedFile() != juce::File (capturePath))
+    {
+        if (capture.loadFile (juce::File (capturePath)).isNotEmpty())
+            capture.unload();
+    }
 
     return true;
 }

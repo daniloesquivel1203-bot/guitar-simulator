@@ -7,9 +7,9 @@
 /** Saving and loading complete sounds.
 
     A preset holds which pedals are on the board and in what order, the value
-    of every knob and switch, and the chosen cabinet. It does not hold the input trim or output level, which
-    belong to your guitar and headphones and should not jump when you change
-    sounds.
+    of every knob and switch, the chosen cabinet and the amp capture file. It
+    does not hold the input trim or output level, which belong to your guitar
+    and headphones and should not jump when you change sounds.
 
     Factory presets are built into the app and cannot be changed. User presets
     are JSON files in a folder, one file per preset, so they are easy to back

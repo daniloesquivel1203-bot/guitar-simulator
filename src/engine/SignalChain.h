@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AmpCapture.h"
 #include "AmpModel.h"
 #include "Cabinet.h"
 #include "Pedalboard.h"
@@ -13,7 +14,8 @@
 /** The audio path from one mono input to a stereo output.
 
     This class has no knowledge of audio devices, so it can be tested offline.
-    The order is: input trim, the pedals before the amp, amp, cabinet, the
+    The order is: input trim, the pedals before the amp, amp (the built-in
+    model, or a loaded capture when one is switched on), cabinet, the
     pedals after the amp, output level and safety limiter. A new chain has the
     V1 pedals in the V1 order: gate, compressor, overdrive, distortion before
     the amp, and EQ, chorus, delay, reverb after it.
@@ -42,6 +44,7 @@ public:
     void process (const float* input, float* left, float* right, int numSamples) noexcept;
 
     AmpModel& getAmp() noexcept        { return amp; }
+    AmpCapture& getCapture() noexcept  { return capture; }
     Cabinet& getCabinet() noexcept     { return cabinet; }
 
     Pedalboard& getBoard() noexcept    { return board; }
@@ -59,7 +62,7 @@ public:
     }
 
     /** Every parameter in the chain in signal order: the pedals before the amp,
-        the amp, the cabinet, then the pedals after the amp. */
+        the amp, the amp capture, the cabinet, then the pedals after the amp. */
     std::vector<Parameter*> getAllParameters();
 
     void setInputGainDb (float db) noexcept;
@@ -84,6 +87,7 @@ private:
 
     Pedalboard board;
     AmpModel amp;
+    AmpCapture capture;
     Cabinet cabinet;
     SafetyLimiter limiter;
 
