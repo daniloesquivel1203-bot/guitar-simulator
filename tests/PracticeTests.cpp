@@ -395,6 +395,163 @@ TEST_CASE ("once every lane is in use, the oldest overdub folds into the first")
     REQUIRE (looper.getNumLayerLanes() == Looper::maxLayerLanes - 1);
 }
 
+namespace
+{
+// A loop of 0.25, with full-pass overdubs at the given levels.
+void recordLayers (Looper& looper, std::initializer_list<float> overdubs)
+{
+    looper.prepare (rate);
+    looper.pressMain();
+    runLooper (looper, constant (0.25f, 24000));
+    looper.pressMain();
+
+    for (auto overdub : overdubs)
+    {
+        looper.pressMain();
+        runLooper (looper, constant (overdub, 24000));
+        looper.pressMain();
+    }
+
+    runLooper (looper, constant (0.0f, 640));
+}
+
+float loopPeak (Looper& looper)
+{
+    runLooper (looper, constant (0.0f, 4800));   // let any removed layer fade out
+    return test::peak (runLooper (looper, constant (0.0f, 24000)));
+}
+}
+
+TEST_CASE ("any layer can be removed and the others keep playing")
+{
+    Looper looper;
+    recordLayers (looper, { 0.1f, 0.05f });
+    REQUIRE_THAT (loopPeak (looper), WithinAbs (0.40, 1.0e-5));
+
+    SECTION ("the middle one")
+    {
+        const auto keptId = looper.getLayerId (2);
+        looper.removeLayer (looper.getLayerId (1));
+        REQUIRE_THAT (loopPeak (looper), WithinAbs (0.30, 1.0e-5));
+        REQUIRE (looper.getNumLayers() == 2);
+        REQUIRE (looper.getLayerId (1) == keptId);
+    }
+
+    SECTION ("the first recording")
+    {
+        looper.removeLayer (looper.getLayerId (0));
+        REQUIRE_THAT (loopPeak (looper), WithinAbs (0.15, 1.0e-5));
+        REQUIRE (looper.getNumLayers() == 2);
+        REQUIRE (looper.getLength() == 24000);
+    }
+
+    SECTION ("while stopped")
+    {
+        looper.pressStop();
+        runLooper (looper, constant (0.0f, 640));
+        looper.removeLayer (looper.getLayerId (1));
+        runLooper (looper, constant (0.0f, 640));
+        REQUIRE (looper.getState() == Looper::State::stopped);
+        looper.pressMain();
+        REQUIRE_THAT (loopPeak (looper), WithinAbs (0.30, 1.0e-5));
+    }
+
+    SECTION ("undo goes back one layer at a time")
+    {
+        looper.pressUndo();
+        REQUIRE_THAT (loopPeak (looper), WithinAbs (0.35, 1.0e-5));
+        REQUIRE (looper.canUndo());
+        looper.pressUndo();
+        REQUIRE_THAT (loopPeak (looper), WithinAbs (0.25, 1.0e-5));
+        REQUIRE_FALSE (looper.canUndo());
+    }
+}
+
+TEST_CASE ("removing a layer fades it out instead of clicking")
+{
+    Looper looper;
+    recordLayers (looper, { 0.5f });
+
+    looper.removeLayer (looper.getLayerId (1));
+    const auto played = runLooper (looper, constant (0.0f, 2400));
+
+    for (size_t i = 1; i < played.size(); ++i)
+        REQUIRE (std::abs (played[i] - played[i - 1]) < 0.01f);
+
+    REQUIRE_THAT (played.back(), WithinAbs (0.25, 1.0e-5));
+}
+
+TEST_CASE ("removing the layer being recorded ends the overdub")
+{
+    Looper looper;
+    recordLayers (looper, { 0.1f });
+
+    looper.pressMain();
+    runLooper (looper, constant (0.2f, 6000));
+    REQUIRE (looper.getState() == Looper::State::overdubbing);
+
+    looper.removeLayer (looper.getLayerId (2));
+    runLooper (looper, constant (0.2f, 640));
+    REQUIRE (looper.getState() == Looper::State::playing);
+    REQUIRE (looper.getNumLayers() == 2);
+    REQUIRE_THAT (loopPeak (looper), WithinAbs (0.35, 1.0e-5));
+}
+
+TEST_CASE ("the last layer stays, and an old layer id does nothing")
+{
+    Looper looper;
+    recordLayers (looper, { 0.1f });
+
+    const auto removedId = looper.getLayerId (1);
+    looper.removeLayer (removedId);
+    runLooper (looper, constant (0.0f, 4800));
+    looper.removeLayer (removedId);
+    runLooper (looper, constant (0.0f, 640));
+    REQUIRE (looper.getNumLayers() == 1);
+
+    looper.removeLayer (looper.getLayerId (0));
+    REQUIRE_THAT (loopPeak (looper), WithinAbs (0.25, 1.0e-5));
+    REQUIRE (looper.getNumLayers() == 1);
+}
+
+TEST_CASE ("a removed layer's memory is clean when it is used again")
+{
+    Looper looper;
+    recordLayers (looper, { 0.5f });
+
+    looper.removeLayer (looper.getLayerId (1));
+    runLooper (looper, constant (0.0f, 4800));
+
+    // A short overdub in the reused memory must not bring the old layer back.
+    looper.pressMain();
+    runLooper (looper, constant (0.1f, 2400));
+    looper.pressMain();
+    REQUIRE_THAT (loopPeak (looper), WithinAbs (0.35, 1.0e-5));
+}
+
+TEST_CASE ("folding the oldest overdub away does not change the sound")
+{
+    Looper looper;
+    looper.prepare (rate);
+    looper.pressMain();
+    runLooper (looper, constant (0.1f, 24000));
+    looper.pressMain();
+
+    auto expected = 0.1f;
+
+    for (int layer = 0; layer < Looper::maxLayerLanes + 2; ++layer)
+    {
+        looper.pressMain();
+        runLooper (looper, constant (0.02f, 24000));
+        looper.pressMain();
+        runLooper (looper, constant (0.0f, 640));
+        expected += 0.02f;
+        REQUIRE_THAT (loopPeak (looper), WithinAbs (expected, 1.0e-4));
+    }
+
+    REQUIRE (looper.getNumFoldedLayers() == 3);
+}
+
 //==============================================================================
 TEST_CASE ("the take recorder writes the sound and the dry guitar to WAV files")
 {

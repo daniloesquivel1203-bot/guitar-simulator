@@ -7,6 +7,7 @@
 namespace
 {
 constexpr int labelWidth = 30;
+constexpr int removeWidth = 20;
 constexpr int laneGap = 2;
 constexpr int maxLaneHeight = 36;
 
@@ -20,18 +21,91 @@ juce::Colour laneColour (int lane)
                                                        juce::Colour (0xffd8c76a) };
     return colours[(size_t) lane % colours.size()];
 }
+
+juce::String laneName (int lane, int folded)
+{
+    if (lane == 0)
+        return folded > 0 ? "1-" + juce::String (folded + 1) : juce::String ("1");
+
+    return juce::String (lane + folded + 1);
+}
 }
 
-LooperLayersView::LooperLayersView (const Looper& looperToShow) : looper (looperToShow)
+LooperLayersView::LooperLayersView (Looper& looperToShow) : looper (looperToShow)
 {
-    setInterceptsMouseClicks (false, false);
+}
+
+juce::Rectangle<int> LooperLayersView::getLaneBounds (int lane, int lanes) const
+{
+    const auto area = getLocalBounds().reduced (3);
+    const auto height = juce::jmin (maxLaneHeight, (area.getHeight() - (lanes - 1) * laneGap) / juce::jmax (1, lanes));
+    return area.withY (area.getY() + lane * (height + laneGap)).withHeight (height);
+}
+
+bool LooperLayersView::canRemoveLayers() const
+{
+    const auto state = looper.getState();
+    return looper.getNumLayerLanes() > 1 && state != Looper::State::recording && state != Looper::State::empty;
+}
+
+int LooperLayersView::getRemoveButtonAt (juce::Point<int> point) const
+{
+    if (! canRemoveLayers())
+        return -1;
+
+    const auto lanes = looper.getNumLayerLanes();
+
+    for (int lane = 0; lane < lanes; ++lane)
+        if (getLaneBounds (lane, lanes).removeFromRight (removeWidth).contains (point))
+            return lane;
+
+    return -1;
+}
+
+void LooperLayersView::setHoveredButton (int lane)
+{
+    if (lane == hoveredButton)
+        return;
+
+    hoveredButton = lane;
+    setMouseCursor (lane >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    setTooltip (lane >= 0 ? "Remove layer " + laneName (lane, looper.getNumFoldedLayers()) : juce::String());
+    repaint();
+}
+
+void LooperLayersView::mouseMove (const juce::MouseEvent& event)
+{
+    setHoveredButton (getRemoveButtonAt (event.getPosition()));
+}
+
+void LooperLayersView::mouseExit (const juce::MouseEvent&)
+{
+    setHoveredButton (-1);
+}
+
+void LooperLayersView::mouseDown (const juce::MouseEvent& event)
+{
+    const auto lane = getRemoveButtonAt (event.getPosition());
+    pressedLayerId = lane >= 0 ? looper.getLayerId (lane) : 0;
+}
+
+void LooperLayersView::mouseUp (const juce::MouseEvent& event)
+{
+    const auto lane = getRemoveButtonAt (event.getPosition());
+
+    // The id, not the lane number, so the right layer goes even if the lanes moved.
+    if (lane >= 0 && pressedLayerId != 0 && looper.getLayerId (lane) == pressedLayerId)
+        looper.removeLayer (pressedLayerId);
+
+    pressedLayerId = 0;
+    setHoveredButton (-1);
 }
 
 void LooperLayersView::paint (juce::Graphics& g)
 {
     const auto state = looper.getState();
     const auto lanes = looper.getNumLayerLanes();
-    auto bounds = getLocalBounds();
+    const auto bounds = getLocalBounds();
 
     g.setColour (Theme::sunken);
     g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
@@ -44,17 +118,16 @@ void LooperLayersView::paint (juce::Graphics& g)
         return;
     }
 
-    bounds.reduce (3, 3);
-    const auto laneHeight = juce::jmin (maxLaneHeight, (bounds.getHeight() - (lanes - 1) * laneGap) / lanes);
+    const auto laneHeight = getLaneBounds (0, lanes).getHeight();
     const auto folded = looper.getNumFoldedLayers();
+    const auto removable = canRemoveLayers();
     juce::Rectangle<int> waves;
 
     g.setFont (juce::FontOptions (juce::jlimit (9.0f, 11.0f, (float) laneHeight - 2.0f), juce::Font::bold));
 
     for (int lane = 0; lane < lanes; ++lane)
     {
-        auto row = bounds.removeFromTop (laneHeight);
-        bounds.removeFromTop (laneGap);
+        auto row = getLaneBounds (lane, lanes);
 
         const auto live = (state == Looper::State::recording && lane == 0)
                           || (state == Looper::State::overdubbing && lane == lanes - 1);
@@ -65,11 +138,27 @@ void LooperLayersView::paint (juce::Graphics& g)
         if (state == Looper::State::stopped)
             colour = colour.withMultipliedSaturation (0.45f).withMultipliedBrightness (0.75f);
 
-        const auto number = lane == 0 ? (folded > 0 ? "1-" + juce::String (folded + 1) : juce::String ("1"))
-                                      : juce::String (lane + folded + 1);
-
         g.setColour (live ? colour : juce::Colours::white.withAlpha (0.6f));
-        g.drawText (number, row.removeFromLeft (labelWidth), juce::Justification::centred, false);
+        g.drawText (laneName (lane, folded), row.removeFromLeft (labelWidth), juce::Justification::centred, false);
+
+        if (removable)
+        {
+            const auto button = row.removeFromRight (removeWidth);
+            const auto hovered = lane == hoveredButton;
+
+            if (hovered)
+            {
+                g.setColour (Theme::danger);
+                g.fillRect (button);
+            }
+
+            const auto size = juce::jmin (7.0f, (float) button.getHeight() - 4.0f);
+            const auto cross = button.toFloat().withSizeKeepingCentre (size, size);
+
+            g.setColour (juce::Colours::white.withAlpha (hovered ? 1.0f : 0.55f));
+            g.drawLine ({ cross.getTopLeft(), cross.getBottomRight() }, 1.4f);
+            g.drawLine ({ cross.getTopRight(), cross.getBottomLeft() }, 1.4f);
+        }
 
         g.setColour (Theme::panel.withAlpha (live ? 0.95f : 0.6f));
         g.fillRect (row);
@@ -103,7 +192,7 @@ void LooperLayersView::paintLane (juce::Graphics& g, juce::Rectangle<int> wave, 
     for (int x = 0; x < width; ++x)
     {
         const auto first = x * bins / width;
-        const auto last = juce::jmax (first + 1, (x + 1) * bins / width);
+        const auto last = juce::jmin (bins, juce::jmax (first + 1, (x + 1) * bins / width));
         auto peak = 0.0f;
 
         for (int bin = first; bin < last; ++bin)

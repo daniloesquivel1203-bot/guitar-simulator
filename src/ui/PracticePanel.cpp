@@ -141,7 +141,7 @@ PracticePanel::PracticePanel (AudioEngine& engineToUse)
     stopButton.onClick = [&looper] { looper.pressStop(); };
     addAndMakeVisible (stopButton);
 
-    undoButton.setTooltip ("Takes back the last layer you added.");
+    undoButton.setTooltip ("Takes back the newest layer. Press again to go further back.");
     undoButton.onClick = [&looper] { looper.pressUndo(); };
     addAndMakeVisible (undoButton);
 
@@ -337,7 +337,7 @@ void PracticePanel::paint (juce::Graphics& g)
 
     if (state == Looper::State::recording)
     {
-        fraction = (float) looper.getLength() / (float) (Looper::maxLoopSeconds * looper.getSampleRate());
+        fraction = (float) looper.getLength() / (float) juce::jmax (1, looper.getCapacity());
         barColour = Theme::danger;
     }
     else if (looper.getLength() > 0 && state != Looper::State::empty)

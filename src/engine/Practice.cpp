@@ -15,9 +15,11 @@ constexpr double minLoopSeconds = 0.25;
 constexpr double loopEdgeFadeSeconds = 0.01;
 constexpr double levelSmoothingSeconds = 0.02;
 
-// Undoing an overdub copies the old samples back a piece at a time, so a long
-// loop never makes one audio block late.
-constexpr int undoSamplesPerBlock = 65536;
+constexpr double layerFadeSeconds = 0.005;
+
+// Folding and clearing layers happen a piece at a time, so a long loop never
+// makes one audio block late.
+constexpr int backgroundSamplesPerBlock = 96000;
 
 constexpr int recorderBufferSeconds = 4;
 }
@@ -136,172 +138,191 @@ void Looper::prepare (double newSampleRate)
     sampleRate = newSampleRate;
     capacity = (int) (maxLoopSeconds * sampleRate);
 
-    for (auto* buffers : { &loop, &backup })
-        for (auto& channel : *buffers)
-            channel.assign ((size_t) capacity, 0.0f);
+    // Zeroed allocations only take up real memory once they are used, so the
+    // layers cost nothing until they are recorded. If the memory is not there
+    // the longest loop gets shorter instead of the app failing.
+    for (;;)
+    {
+        bool allocated = true;
 
+        for (auto& slot : slots)
+        {
+            slot.memory.free();
+            slot.memory.calloc ((size_t) capacity * 2);
+            allocated = allocated && slot.memory != nullptr;
+        }
+
+        if (allocated)
+            break;
+
+        capacity /= 2;
+
+        if (capacity < (int) (minLoopSeconds * sampleRate))
+        {
+            for (auto& slot : slots)
+                slot.memory.free();
+
+            capacity = 0;
+            break;
+        }
+    }
+
+    for (auto& slot : slots)
+    {
+        slot.left = slot.memory.get();
+        slot.right = capacity > 0 ? slot.memory.get() + capacity : nullptr;
+        slot.use = SlotUse::free;
+        slot.dirty = slot.cleared = 0;
+        slot.gain = 1.0f;
+    }
+
+    fadeStep = 1.0f / juce::jmax (1.0f, (float) (layerFadeSeconds * sampleRate));
     length = pos = 0;
-    lastOverdubCount = restoreCount = 0;
+    liveSlot = foldSource = foldTarget = -1;
+    heldCommand.reset();
     state.store (State::empty);
     loopLength.store (0);
     position.store (0);
-    undoAvailable.store (false);
-    resetLayers();
+    capacityInSamples.store (capacity);
+    resetLayerDisplay();
 }
 
-void Looper::resetLayers() noexcept
+void Looper::resetLayerDisplay() noexcept
 {
     numLanes.store (0, std::memory_order_release);
     foldedLayers.store (0);
     binsFilled.store (0, std::memory_order_release);
     samplesPerRecordedBin = 1;
-
-    for (int lane = 0; lane < maxLayerLanes; ++lane)
-        clearLane (lane);
+    undoAvailable.store (false);
 }
 
-void Looper::clearLane (int lane) noexcept
-{
-    for (auto& peak : layerPeaks[(size_t) lane])
-        peak.store (0.0f, std::memory_order_relaxed);
-}
-
-void Looper::beginOverdubLayer() noexcept
-{
-    auto lanes = numLanes.load();
-
-    if (lanes >= maxLayerLanes)
-    {
-        // Fold the oldest overdub into the first lane and move the others up.
-        for (int bin = 0; bin < layerBins; ++bin)
-            layerPeaks[0][(size_t) bin].store (juce::jmax (getLayerPeak (0, bin), getLayerPeak (1, bin)),
-                                               std::memory_order_relaxed);
-
-        for (int lane = 1; lane < maxLayerLanes - 1; ++lane)
-            for (int bin = 0; bin < layerBins; ++bin)
-                layerPeaks[(size_t) lane][(size_t) bin].store (getLayerPeak (lane + 1, bin), std::memory_order_relaxed);
-
-        foldedLayers.fetch_add (1);
-        lanes = maxLayerLanes - 1;
-    }
-
-    clearLane (lanes);
-    numLanes.store (lanes + 1, std::memory_order_release);
-}
-
-void Looper::noteRecordedPeak (float peak) noexcept
-{
-    auto bin = pos / samplesPerRecordedBin;
-
-    if (bin >= layerBins)
-    {
-        // Out of bins: halve the detail so the recording fits again.
-        auto& lane = layerPeaks[0];
-
-        for (int b = 0; b < layerBins / 2; ++b)
-            lane[(size_t) b].store (juce::jmax (getLayerPeak (0, 2 * b), getLayerPeak (0, 2 * b + 1)),
-                                    std::memory_order_relaxed);
-
-        for (int b = layerBins / 2; b < layerBins; ++b)
-            lane[(size_t) b].store (0.0f, std::memory_order_relaxed);
-
-        samplesPerRecordedBin *= 2;
-        bin = pos / samplesPerRecordedBin;
-    }
-
-    auto& slot = layerPeaks[0][(size_t) bin];
-
-    if (peak > slot.load (std::memory_order_relaxed))
-        slot.store (peak, std::memory_order_relaxed);
-
-    binsFilled.store (bin + 1, std::memory_order_release);
-}
-
-void Looper::noteOverdubPeak (float peak) noexcept
-{
-    const auto bin = (size_t) ((juce::int64) pos * layerBins / length);
-    auto& slot = layerPeaks[(size_t) numLanes.load (std::memory_order_relaxed) - 1][bin];
-
-    if (peak > slot.load (std::memory_order_relaxed))
-        slot.store (peak, std::memory_order_relaxed);
-}
-
-void Looper::stretchRecordedLayer() noexcept
-{
-    // Spread the bins in use across the whole lane, so a bin's place matches
-    // its place in the loop. Going backwards never reads a bin already written.
-    const auto used = juce::jmax (1, binsFilled.load());
-
-    for (int target = layerBins - 1; target >= 0; --target)
-        layerPeaks[0][(size_t) target].store (getLayerPeak (0, target * used / layerBins), std::memory_order_relaxed);
-
-    binsFilled.store (layerBins, std::memory_order_release);
-}
-
-void Looper::post (Command command)
+void Looper::post (Command command, int layerId)
 {
     const auto scope = commandFifo.write (1);
 
     if (scope.blockSize1 > 0)
-        commands[(size_t) scope.startIndex1] = command;
+        commands[(size_t) scope.startIndex1] = { command, layerId };
     else if (scope.blockSize2 > 0)
-        commands[(size_t) scope.startIndex2] = command;
+        commands[(size_t) scope.startIndex2] = { command, layerId };
+}
+
+int Looper::findFreeSlot() const noexcept
+{
+    for (int index = 0; index < numSlots; ++index)
+        if (slots[(size_t) index].use == SlotUse::free)
+            return index;
+
+    return -1;
+}
+
+bool Looper::needsFreeSlot (const Message& message) const noexcept
+{
+    const auto current = state.load();
+    return message.command == Command::main && (current == State::empty || current == State::playing);
+}
+
+void Looper::doBackgroundWork() noexcept
+{
+    auto budget = backgroundSamplesPerBlock;
+
+    // Moving a layer into another one a sample at a time keeps their sum, and
+    // so the sound, exactly the same throughout.
+    if (foldSource >= 0)
+    {
+        auto& source = slots[(size_t) foldSource];
+        auto& target = slots[(size_t) foldTarget];
+        const auto todo = juce::jmin (budget, length - foldDone);
+
+        for (int k = foldDone; k < foldDone + todo; ++k)
+        {
+            target.left[k] += source.left[k];
+            target.right[k] += source.right[k];
+            source.left[k] = source.right[k] = 0.0f;
+        }
+
+        foldDone += todo;
+        budget -= todo;
+
+        if (foldDone >= length)
+        {
+            source.use = SlotUse::free;
+            source.dirty = 0;
+            foldSource = foldTarget = -1;
+        }
+    }
+
+    for (auto& slot : slots)
+    {
+        if (slot.use != SlotUse::clearing || budget <= 0)
+            continue;
+
+        const auto todo = juce::jmin (budget, slot.dirty - slot.cleared);
+        juce::FloatVectorOperations::clear (slot.left + slot.cleared, todo);
+        juce::FloatVectorOperations::clear (slot.right + slot.cleared, todo);
+        slot.cleared += todo;
+        budget -= todo;
+
+        if (slot.cleared >= slot.dirty)
+        {
+            slot.use = SlotUse::free;
+            slot.dirty = slot.cleared = 0;
+        }
+    }
 }
 
 void Looper::runCommands() noexcept
 {
-    // Finish restoring an undone overdub before taking new commands.
-    if (restoreCount > 0)
+    doBackgroundWork();
+
+    // A command waiting for a free layer runs first, to keep commands in order.
+    if (heldCommand.has_value())
     {
-        const auto todo = juce::jmin (restoreCount, undoSamplesPerBlock);
+        if (needsFreeSlot (*heldCommand) && findFreeSlot() < 0)
+            return;
 
-        for (int k = 0; k < todo; ++k)
-        {
-            const auto p = (size_t) ((restoreStart + k) % length);
-            loop[0][p] = backup[0][p];
-            loop[1][p] = backup[1][p];
-        }
-
-        restoreStart = (restoreStart + todo) % length;
-        restoreCount -= todo;
-        return;
+        const auto message = *heldCommand;
+        heldCommand.reset();
+        handle (message);
     }
 
     while (commandFifo.getNumReady() > 0)
     {
-        Command command {};
+        Message message {};
         const auto scope = commandFifo.read (1);
 
         if (scope.blockSize1 > 0)
-            command = commands[(size_t) scope.startIndex1];
+            message = commands[(size_t) scope.startIndex1];
         else if (scope.blockSize2 > 0)
-            command = commands[(size_t) scope.startIndex2];
+            message = commands[(size_t) scope.startIndex2];
         else
             break;
 
-        handle (command);
-
-        if (restoreCount > 0)
+        if (needsFreeSlot (message) && findFreeSlot() < 0)
+        {
+            heldCommand = message;
             return;
+        }
+
+        handle (message);
     }
 }
 
-void Looper::handle (Command command) noexcept
+void Looper::handle (const Message& message) noexcept
 {
     if (capacity == 0)
         return;
 
-    auto current = state.load();
+    const auto current = state.load();
 
-    switch (command)
+    switch (message.command)
     {
         case Command::main:
             if (current == State::empty)
             {
                 pos = length = 0;
-                undoAvailable.store (false);
-                resetLayers();
-                numLanes.store (1, std::memory_order_release);
+                resetLayerDisplay();
+                liveSlot = claimSlot();
+                appendLane (liveSlot);
                 state.store (State::recording);
             }
             else if (current == State::recording)
@@ -310,12 +331,7 @@ void Looper::handle (Command command) noexcept
             }
             else if (current == State::playing)
             {
-                overdubStart = pos;
-                overdubCount = 0;
-                undoBeforeOverdub = undoAvailable.load();
-                undoAvailable.store (true);
-                beginOverdubLayer();
-                state.store (State::overdubbing);
+                beginOverdub();
             }
             else if (current == State::overdubbing)
             {
@@ -349,22 +365,199 @@ void Looper::handle (Command command) noexcept
                 state.store (State::playing);
             }
 
-            if (undoAvailable.exchange (false))
-                undoLastOverdub();
+            if (numLanes.load() > 1)
+                removeLaneAt (numLanes.load() - 1);
+            break;
+
+        case Command::removeLayer:
+            removeLayerById (message.layerId);
             break;
 
         case Command::clear:
             pos = length = 0;
-            lastOverdubCount = restoreCount = 0;
-            undoAvailable.store (false);
-            resetLayers();
+            liveSlot = foldSource = foldTarget = -1;
+
+            for (auto& slot : slots)
+                if (slot.use != SlotUse::free && slot.use != SlotUse::clearing)
+                    retire (slot);
+
+            resetLayerDisplay();
             state.store (State::empty);
             break;
     }
 }
 
+int Looper::claimSlot() noexcept
+{
+    const auto index = findFreeSlot();
+    jassert (index >= 0);
+
+    auto& slot = slots[(size_t) index];
+    slot.use = SlotUse::layer;
+    slot.gain = 1.0f;
+    slot.dirty = slot.cleared = 0;
+    slotIds[(size_t) index].store (nextLayerId++, std::memory_order_relaxed);
+
+    for (auto& peak : layerPeaks[(size_t) index])
+        peak.store (0.0f, std::memory_order_relaxed);
+
+    return index;
+}
+
+void Looper::retire (Slot& slot) noexcept
+{
+    slot.cleared = 0;
+    slot.use = slot.dirty > 0 ? SlotUse::clearing : SlotUse::free;
+}
+
+void Looper::appendLane (int slotIndex) noexcept
+{
+    const auto lanes = numLanes.load();
+    laneSlots[(size_t) lanes].store (slotIndex, std::memory_order_relaxed);
+    numLanes.store (lanes + 1, std::memory_order_release);
+    undoAvailable.store (lanes + 1 > 1);
+}
+
+void Looper::dropLaneEntry (int lane) noexcept
+{
+    const auto lanes = numLanes.load();
+
+    for (int k = lane; k < lanes - 1; ++k)
+        laneSlots[(size_t) k].store (laneSlots[(size_t) k + 1].load (std::memory_order_relaxed), std::memory_order_relaxed);
+
+    numLanes.store (lanes - 1, std::memory_order_release);
+    undoAvailable.store (lanes - 1 > 1);
+}
+
+void Looper::removeLaneAt (int lane) noexcept
+{
+    const auto index = laneSlots[(size_t) lane].load (std::memory_order_relaxed);
+
+    if (lane == 0)
+    {
+        foldedLayers.store (0);
+
+        // A layer still being folded into this lane is part of it, so it goes too.
+        if (foldSource >= 0 && foldTarget == index)
+        {
+            slots[(size_t) foldSource].use = SlotUse::fading;
+            foldSource = foldTarget = -1;
+        }
+    }
+
+    slots[(size_t) index].use = SlotUse::fading;
+    dropLaneEntry (lane);
+}
+
+void Looper::removeLayerById (int layerId) noexcept
+{
+    auto lanes = numLanes.load();
+    auto lane = -1;
+
+    for (int k = 0; k < lanes; ++k)
+        if (slotIds[(size_t) laneSlots[(size_t) k].load (std::memory_order_relaxed)].load (std::memory_order_relaxed) == layerId)
+            lane = k;
+
+    // The first recording has to finish, and the last layer stays: Clear removes it.
+    if (lane < 0 || state.load() == State::recording || lanes < 2)
+        return;
+
+    if (state.load() == State::overdubbing && laneSlots[(size_t) lane].load (std::memory_order_relaxed) == liveSlot)
+    {
+        const auto wroteAudio = overdubWrote;
+        finishOverdub();
+        state.store (State::playing);
+
+        if (! wroteAudio)
+            return;
+    }
+
+    removeLaneAt (lane);
+}
+
+void Looper::beginOverdub() noexcept
+{
+    if (numLanes.load() >= maxLayerLanes)
+    {
+        // Out of lanes: fold the oldest overdub into the first lane.
+        foldTarget = laneSlots[0].load (std::memory_order_relaxed);
+        foldSource = laneSlots[1].load (std::memory_order_relaxed);
+        foldDone = 0;
+        slots[(size_t) foldSource].use = SlotUse::folding;
+
+        for (int bin = 0; bin < layerBins; ++bin)
+        {
+            auto& peak = layerPeaks[(size_t) foldTarget][(size_t) bin];
+            peak.store (juce::jmax (peak.load (std::memory_order_relaxed),
+                                    layerPeaks[(size_t) foldSource][(size_t) bin].load (std::memory_order_relaxed)),
+                        std::memory_order_relaxed);
+        }
+
+        dropLaneEntry (1);
+        foldedLayers.fetch_add (1);
+    }
+
+    liveSlot = claimSlot();
+    slots[(size_t) liveSlot].dirty = length;
+    overdubWrote = false;
+    appendLane (liveSlot);
+    state.store (State::overdubbing);
+}
+
+void Looper::noteRecordedPeak (float peak) noexcept
+{
+    auto& lane = layerPeaks[(size_t) liveSlot];
+    auto bin = pos / samplesPerRecordedBin;
+
+    if (bin >= layerBins)
+    {
+        // Out of bins: halve the detail so the recording fits again.
+        for (int b = 0; b < layerBins / 2; ++b)
+            lane[(size_t) b].store (juce::jmax (lane[(size_t) (2 * b)].load (std::memory_order_relaxed),
+                                                lane[(size_t) (2 * b + 1)].load (std::memory_order_relaxed)),
+                                    std::memory_order_relaxed);
+
+        for (int b = layerBins / 2; b < layerBins; ++b)
+            lane[(size_t) b].store (0.0f, std::memory_order_relaxed);
+
+        samplesPerRecordedBin *= 2;
+        bin = pos / samplesPerRecordedBin;
+    }
+
+    auto& slot = lane[(size_t) bin];
+
+    if (peak > slot.load (std::memory_order_relaxed))
+        slot.store (peak, std::memory_order_relaxed);
+
+    binsFilled.store (bin + 1, std::memory_order_release);
+}
+
+void Looper::noteOverdubPeak (float peak) noexcept
+{
+    const auto bin = (size_t) ((juce::int64) pos * layerBins / length);
+    auto& slot = layerPeaks[(size_t) liveSlot][bin];
+
+    if (peak > slot.load (std::memory_order_relaxed))
+        slot.store (peak, std::memory_order_relaxed);
+}
+
+void Looper::stretchRecordedLayer() noexcept
+{
+    // Spread the bins in use across the whole lane, so a bin's place matches
+    // its place in the loop. Going backwards never reads a bin already written.
+    auto& lane = layerPeaks[(size_t) liveSlot];
+    const auto used = juce::jmax (1, binsFilled.load());
+
+    for (int target = layerBins - 1; target >= 0; --target)
+        lane[(size_t) target].store (lane[(size_t) (target * used / layerBins)].load (std::memory_order_relaxed),
+                                     std::memory_order_relaxed);
+
+    binsFilled.store (layerBins, std::memory_order_release);
+}
+
 void Looper::finishFirstRecording() noexcept
 {
+    auto& slot = slots[(size_t) liveSlot];
     length = pos;
     pos = 0;
 
@@ -372,7 +565,9 @@ void Looper::finishFirstRecording() noexcept
     {
         // Too short to be a loop, most likely a double press.
         length = 0;
-        resetLayers();
+        retire (slot);
+        liveSlot = -1;
+        resetLayerDisplay();
         state.store (State::empty);
         return;
     }
@@ -386,39 +581,38 @@ void Looper::finishFirstRecording() noexcept
     {
         const auto gain = (float) k / (float) fade;
 
-        for (auto& channel : loop)
+        for (auto* channel : { slot.left, slot.right })
         {
-            channel[(size_t) k] *= gain;
-            channel[(size_t) (length - 1 - k)] *= gain;
+            channel[k] *= gain;
+            channel[length - 1 - k] *= gain;
         }
     }
 
+    liveSlot = -1;
     state.store (State::playing);
 }
 
 void Looper::finishOverdub() noexcept
 {
-    if (overdubCount == 0)
+    if (! overdubWrote)
     {
-        // Nothing was recorded, so there is no new layer to show or undo.
-        numLanes.fetch_sub (1, std::memory_order_acq_rel);
-        undoAvailable.store (undoBeforeOverdub);
-        return;
+        // Nothing was recorded, so there is no new layer to keep.
+        const auto lanes = numLanes.load();
+
+        for (int lane = lanes - 1; lane >= 0; --lane)
+        {
+            if (laneSlots[(size_t) lane].load (std::memory_order_relaxed) == liveSlot)
+            {
+                dropLaneEntry (lane);
+                break;
+            }
+        }
+
+        slots[(size_t) liveSlot].dirty = 0;
+        slots[(size_t) liveSlot].use = SlotUse::free;
     }
 
-    // The samples that this overdub changed, which undo puts back.
-    lastOverdubStart = overdubStart;
-    lastOverdubCount = overdubCount;
-}
-
-void Looper::undoLastOverdub() noexcept
-{
-    restoreStart = lastOverdubStart;
-    restoreCount = lastOverdubCount;
-    lastOverdubCount = 0;
-
-    if (numLanes.load() > 1)
-        numLanes.fetch_sub (1, std::memory_order_acq_rel);
+    liveSlot = -1;
 }
 
 void Looper::process (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int numSamples) noexcept
@@ -429,7 +623,19 @@ void Looper::process (const float* inLeft, const float* inRight, float* outLeft,
 
     const auto current = state.load();
     const bool monoOutput = outLeft == outRight;
+    const bool playsBack = current == State::playing || current == State::overdubbing;
     bool reachedEnd = false;
+
+    // Everything that should be heard, including layers on their way out.
+    std::array<Slot*, numSlots> sounding {};
+    int numSounding = 0;
+
+    if (playsBack)
+        for (auto& slot : slots)
+            if (slot.use == SlotUse::layer || slot.use == SlotUse::fading || slot.use == SlotUse::folding)
+                sounding[(size_t) numSounding++] = &slot;
+
+    auto* live = liveSlot >= 0 ? &slots[(size_t) liveSlot] : nullptr;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -440,39 +646,34 @@ void Looper::process (const float* inLeft, const float* inRight, float* outLeft,
 
         if (current == State::recording && ! reachedEnd)
         {
-            loop[0][(size_t) pos] = inL;
-            loop[1][(size_t) pos] = inR;
+            live->left[pos] = inL;
+            live->right[pos] = inR;
+            live->dirty = pos + 1;
             noteRecordedPeak (juce::jmax (std::abs (inL), std::abs (inR)));
 
             if (++pos >= capacity)
                 reachedEnd = true;
         }
-        else if (current == State::playing)
+        else if (playsBack)
         {
-            playL = loop[0][(size_t) pos];
-            playR = loop[1][(size_t) pos];
-
-            if (++pos >= length)
-                pos = 0;
-        }
-        else if (current == State::overdubbing)
-        {
-            auto& sampleL = loop[0][(size_t) pos];
-            auto& sampleR = loop[1][(size_t) pos];
-            playL = sampleL;
-            playR = sampleR;
-
-            // Save each sample before its first change, for undo.
-            if (overdubCount < length)
+            for (int s = 0; s < numSounding; ++s)
             {
-                backup[0][(size_t) pos] = sampleL;
-                backup[1][(size_t) pos] = sampleR;
-                ++overdubCount;
+                auto& slot = *sounding[(size_t) s];
+
+                if (slot.use == SlotUse::fading)
+                    slot.gain = juce::jmax (0.0f, slot.gain - fadeStep);
+
+                playL += slot.left[pos] * slot.gain;
+                playR += slot.right[pos] * slot.gain;
             }
 
-            sampleL += inL;
-            sampleR += inR;
-            noteOverdubPeak (juce::jmax (std::abs (inL), std::abs (inR)));
+            if (current == State::overdubbing)
+            {
+                live->left[pos] += inL;
+                live->right[pos] += inR;
+                overdubWrote = true;
+                noteOverdubPeak (juce::jmax (std::abs (inL), std::abs (inR)));
+            }
 
             if (++pos >= length)
                 pos = 0;
@@ -490,6 +691,11 @@ void Looper::process (const float* inLeft, const float* inRight, float* outLeft,
             outRight[i] += playR * gain;
         }
     }
+
+    // A removed layer has faded out, or nothing is playing it.
+    for (auto& slot : slots)
+        if (slot.use == SlotUse::fading && (slot.gain <= 0.0f || ! playsBack))
+            retire (slot);
 
     // The longest loop has been reached, so it starts playing.
     if (reachedEnd)

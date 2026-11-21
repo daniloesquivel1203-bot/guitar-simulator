@@ -108,6 +108,10 @@ public:
     void pressUndo()   { post (Command::undo); }
     void pressClear()  { post (Command::clear); }
 
+    /** Removes one layer, by its id from getLayerId(). The others keep playing.
+        The last remaining layer stays; Clear is what removes that. */
+    void removeLayer (int layerId)  { post (Command::removeLayer, layerId); }
+
     void setLevelDb (float db) noexcept   { levelDb.store (juce::jlimit (minLevelDb, maxLevelDb, db)); }
     float getLevelDb() const noexcept     { return levelDb.load(); }
 
@@ -119,9 +123,12 @@ public:
     int getLength() const noexcept         { return loopLength.load(); }
     int getPosition() const noexcept       { return position.load(); }
 
-    // A picture of each layer, for display. The audio is still one mixed loop.
-    // Lane 0 is the first recording. Once every lane is in use, the oldest
-    // overdub is folded into lane 0 to make room.
+    /** The longest possible loop, in samples. */
+    int getCapacity() const noexcept       { return capacityInSamples.load(); }
+
+    // Each layer is kept separately, so any of them can be removed. Lane 0 is the
+    // oldest. Once every lane is in use, the oldest overdub is folded into lane 0
+    // to make room, and from then on the two are removed together.
     static constexpr int maxLayerLanes = 8;
     static constexpr int layerBins = 240;
 
@@ -140,7 +147,14 @@ public:
     /** The loudest absolute sample in one slice of a lane. Safe from any thread. */
     float getLayerPeak (int lane, int bin) const noexcept
     {
-        return layerPeaks[(size_t) lane][(size_t) bin].load (std::memory_order_relaxed);
+        const auto slot = (size_t) laneSlots[(size_t) lane].load (std::memory_order_relaxed);
+        return layerPeaks[slot][(size_t) bin].load (std::memory_order_relaxed);
+    }
+
+    /** Identifies the layer in a lane, and stays the same if the lanes move. */
+    int getLayerId (int lane) const noexcept
+    {
+        return slotIds[(size_t) laneSlots[(size_t) lane].load (std::memory_order_relaxed)].load (std::memory_order_relaxed);
     }
 
     /** Records `inLeft`/`inRight` as the loop requires and adds the loop's
@@ -148,55 +162,80 @@ public:
     void process (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int numSamples) noexcept;
 
 private:
-    enum class Command { main, stop, undo, clear };
+    enum class Command { main, stop, undo, clear, removeLayer };
+    enum class SlotUse { free, layer, fading, folding, clearing };
 
-    void post (Command);
+    struct Message
+    {
+        Command command = Command::main;
+        int layerId = 0;
+    };
+
+    /** The audio of one layer. */
+    struct Slot
+    {
+        juce::HeapBlock<float> memory;
+        float* left = nullptr;
+        float* right = nullptr;
+        SlotUse use = SlotUse::free;
+        float gain = 1.0f;
+        int dirty = 0;     // how many samples have been written
+        int cleared = 0;   // how many of those have been zeroed again
+    };
+
+    // One more than the lanes, so a layer can fold away while a new one records.
+    static constexpr int numSlots = maxLayerLanes + 1;
+
+    void post (Command, int layerId = 0);
     void runCommands() noexcept;
-    void handle (Command) noexcept;
+    void doBackgroundWork() noexcept;
+    void handle (const Message&) noexcept;
+    bool needsFreeSlot (const Message&) const noexcept;
+    int findFreeSlot() const noexcept;
+    int claimSlot() noexcept;
+    void retire (Slot&) noexcept;
+    void appendLane (int slotIndex) noexcept;
+    void dropLaneEntry (int lane) noexcept;
+    void removeLaneAt (int lane) noexcept;
+    void removeLayerById (int layerId) noexcept;
+    void beginOverdub() noexcept;
     void finishFirstRecording() noexcept;
     void finishOverdub() noexcept;
-    void undoLastOverdub() noexcept;
-
-    void resetLayers() noexcept;
-    void clearLane (int lane) noexcept;
-    void beginOverdubLayer() noexcept;
+    void resetLayerDisplay() noexcept;
     void noteRecordedPeak (float peak) noexcept;
     void noteOverdubPeak (float peak) noexcept;
     void stretchRecordedLayer() noexcept;
 
     juce::AbstractFifo commandFifo { 64 };
-    std::array<Command, 64> commands {};
+    std::array<Message, 64> commands {};
+    std::optional<Message> heldCommand;
 
     std::atomic<State> state { State::empty };
     std::atomic<float> levelDb { 0.0f };
     std::atomic<int> loopLength { 0 };
     std::atomic<int> position { 0 };
+    std::atomic<int> capacityInSamples { 0 };
     std::atomic<bool> undoAvailable { false };
 
     double sampleRate = 0.0;
-    std::array<std::vector<float>, 2> loop, backup;
+    std::array<Slot, numSlots> slots;
     int capacity = 0;
     int length = 0;
     int pos = 0;
+    float fadeStep = 1.0f;
 
-    // For undo: where the current overdub began and how many samples it has
-    // changed. The old samples are saved to `backup` as they are overwritten.
-    int overdubStart = 0;
-    int overdubCount = 0;
+    int liveSlot = -1;          // the layer being recorded
+    bool overdubWrote = false;
+    int nextLayerId = 1;
 
-    // The last finished overdub, which undo can take back.
-    int lastOverdubStart = 0;
-    int lastOverdubCount = 0;
+    // A layer being moved into another, a piece per block.
+    int foldSource = -1;
+    int foldTarget = -1;
+    int foldDone = 0;
 
-    // An undo in progress: the samples still to copy back from `backup`.
-    int restoreStart = 0;
-    int restoreCount = 0;
-
-    // Whether undo was available before the overdub in progress, so an overdub
-    // that recorded nothing can leave things as they were.
-    bool undoBeforeOverdub = false;
-
-    std::array<std::array<std::atomic<float>, layerBins>, maxLayerLanes> layerPeaks {};
+    std::array<std::array<std::atomic<float>, layerBins>, numSlots> layerPeaks {};
+    std::array<std::atomic<int>, numSlots> slotIds {};
+    std::array<std::atomic<int>, maxLayerLanes> laneSlots {};
     std::atomic<int> numLanes { 0 };
     std::atomic<int> foldedLayers { 0 };
     std::atomic<int> binsFilled { 0 };
