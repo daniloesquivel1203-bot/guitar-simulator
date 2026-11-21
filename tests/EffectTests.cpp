@@ -219,6 +219,7 @@ TEST_CASE ("the compressor leaves quiet signals alone and turns loud ones down b
     auto compressor = makeOn<Compressor>();
     compressor->threshold.set (-20.0f);
     compressor->ratio.set (4.0f);
+    compressor->makeup.set (0.0f);
 
     const auto quietIn = test::sine (220.0, 0.01f, sampleRate, 48000);   // -40 dB
     const auto quietOut = test::render (*compressor, quietIn, blockSize);
@@ -238,6 +239,7 @@ TEST_CASE ("a ratio of one does nothing and makeup gain raises the level")
 {
     auto compressor = makeOn<Compressor>();
     compressor->ratio.set (1.0f);
+    compressor->makeup.set (0.0f);
 
     const auto in = test::sine (220.0, 0.5f, sampleRate, 48000);
     REQUIRE_THAT (levelDb (test::render (*compressor, in, blockSize)), WithinAbs (levelDb (in), 0.01));

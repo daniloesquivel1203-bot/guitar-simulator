@@ -109,6 +109,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/effects/Reverbs.cpp
             src/engine/effects/TimeEffects.cpp
             tests/AmpModelTests.cpp
+            tests/ComfortTests.cpp
             tests/CabinetTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
@@ -120,6 +121,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/TunerTests.cpp
             tests/SafetyLimiterTests.cpp
             tests/SignalChainTests.cpp
+            tests/SoundLabTests.cpp
             tests/TestSignals.h)
 
     target_include_directories(GuitarSimulatorTests PRIVATE src)

@@ -59,6 +59,9 @@ public:
     const PedalType& type;
 
     Effect& getEffect() noexcept         { return *effect; }
+
+    /** Audio thread. See Effect::setFedByGuitar(). */
+    void setFedByGuitar (bool isFedByGuitar) noexcept;
     bool isStereo() const noexcept       { return stereo != nullptr; }
 
     /** Every parameter, starting with the on/off switch. */

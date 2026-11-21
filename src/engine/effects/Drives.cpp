@@ -6,7 +6,7 @@ namespace
 {
 constexpr double smoothingSeconds = 0.03;
 
-/** Level knob: 5 is unity, 10 is +15 dB, 0 is silent. */
+/** Level knob: 5 is unity before the pedal's output trim, 10 is +15 dB, 0 is silent. */
 float levelKnobToGain (float knob) noexcept
 {
     return knob <= 0.0f ? 0.0f : juce::Decibels::decibelsToGain ((knob - 5.0f) * 3.0f);
@@ -32,7 +32,10 @@ void DrivePedal::prepare (double sampleRate, int maxBlockSize)
     rate = sampleRate;
     oversampling.initProcessing ((size_t) juce::jmax (1, maxBlockSize));
     level.reset (rate, smoothingSeconds);
+    loading.reset (rate, 0.05);
     lastToneHz = -1.0f;
+    trebleCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 1800.0 / rate));
+    bassCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 160.0 / rate));
     prepareShaper (rate * 4.0);
     reset();
 }
@@ -41,8 +44,37 @@ void DrivePedal::reset()
 {
     oversampling.reset();
     toneFilter.reset();
-    level.setCurrentAndTargetValue (levelKnobToGain (getLevelKnob()));
+    level.setCurrentAndTargetValue (levelKnobToGain (getLevelKnob()) * juce::Decibels::decibelsToGain (getOutputTrimDb()));
+    loading.setCurrentAndTargetValue (isFedByGuitar() ? 1.0f : 0.0f);
+    trebleState = bassState = 0.0f;
     resetShaper();
+}
+
+void DrivePedal::applyPickupLoading (float* samples, int numSamples) noexcept
+{
+    loading.setTargetValue (isFedByGuitar() ? 1.0f : 0.0f);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const auto x = samples[i];
+        trebleState += trebleCoefficient * (x - trebleState);
+        bassState += bassCoefficient * (x - bassState);
+
+        const auto lows = trebleState;      // everything below about 1.8 kHz
+        const auto highs = x - trebleState;
+        const auto deepBass = bassState;
+
+        // Loaded pickups: the treble is rounded off and some level is lost, so
+        // the fuzz is darker, rounder and cleans up more when you pick softly.
+        const auto loaded = 0.8f * lows + 0.2f * highs;
+
+        // Behind a buffer: full treble with a slight lift and a little less
+        // deep bass, which is why a fuzz there sounds thin and spitty.
+        const auto buffered = x + 0.4f * highs - 0.25f * deepBass;
+
+        const auto amount = loading.getNextValue();
+        samples[i] = buffered + amount * (loaded - buffered);
+    }
 }
 
 void DrivePedal::process (float* samples, int numSamples) noexcept
@@ -59,7 +91,10 @@ void DrivePedal::process (float* samples, int numSamples) noexcept
         toneFilter.coefficients = Coefficients::makeLowPass (rate, toneHz);
     }
 
-    level.setTargetValue (levelKnobToGain (getLevelKnob()));
+    level.setTargetValue (levelKnobToGain (getLevelKnob()) * juce::Decibels::decibelsToGain (getOutputTrimDb()));
+
+    if (loadsThePickups())
+        applyPickupLoading (samples, numSamples);
 
     float* channel[] = { samples };
     juce::dsp::AudioBlock<float> block (channel, 1, (size_t) numSamples);

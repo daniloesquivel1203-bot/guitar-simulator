@@ -22,6 +22,7 @@ private:
     void shape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override              { return 8000.0f; }
     float getLevelKnob() const noexcept override           { return level.get(); }
+    bool loadsThePickups() const noexcept override   { return true; }
 
     double osRate = 192000.0;
     pedal_dsp::OnePole highPass;
@@ -47,6 +48,7 @@ private:
     void shape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override;
     float getLevelKnob() const noexcept override   { return level.get(); }
+    float getOutputTrimDb() const noexcept override  { return -1.5f; }
 
     float highPassCoefficient = 0.0f;
     pedal_dsp::OnePole highPass;
@@ -73,6 +75,8 @@ private:
     void shape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override;
     float getLevelKnob() const noexcept override   { return level.get(); }
+    float getOutputTrimDb() const noexcept override  { return -13.5f; }
+    bool loadsThePickups() const noexcept override   { return true; }
 
     float highPassCoefficient = 0.0f;
     pedal_dsp::OnePole highPass;
@@ -99,6 +103,7 @@ private:
     void postShape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override      { return 0.0f; }
     float getLevelKnob() const noexcept override   { return level.get(); }
+    float getOutputTrimDb() const noexcept override  { return -9.5f; }
 
     float inputHighPass = 0.0f, interstageLowPass = 0.0f, toneLow = 0.0f, toneHigh = 0.0f;
     pedal_dsp::OnePole highPass, interstage, lowBand, highBand;
@@ -125,6 +130,8 @@ private:
     void shape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override;
     float getLevelKnob() const noexcept override   { return level.get(); }
+    float getOutputTrimDb() const noexcept override  { return -10.0f; }
+    bool loadsThePickups() const noexcept override   { return true; }
 
     float highPassCoefficient = 0.0f;
     pedal_dsp::OnePole highPass;
@@ -153,6 +160,7 @@ private:
     void postShape (float* samples, int numSamples) noexcept override;
     float getToneHz() const noexcept override      { return 0.0f; }
     float getLevelKnob() const noexcept override   { return level.get(); }
+    float getOutputTrimDb() const noexcept override  { return -11.0f; }
 
     void updateEq() noexcept;
 

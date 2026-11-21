@@ -30,6 +30,38 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     };
     addAndMakeVisible (presetBar);
 
+    undoButton.setTooltip ("Undo the last change to the sound (Ctrl+Z).");
+    undoButton.onClick = [this] { undo(); };
+    addAndMakeVisible (undoButton);
+
+    redoButton.setTooltip ("Redo (Ctrl+Y).");
+    redoButton.onClick = [this] { redo(); };
+    addAndMakeVisible (redoButton);
+
+    // A and B work like two memories: the sound you leave is kept, and the
+    // first switch to B starts it as a copy of A.
+    for (auto* button : { &slotAButton, &slotBButton })
+    {
+        button->setClickingTogglesState (false);
+        button->setTooltip ("Compare two versions of your sound. Tweak one, switch, and tweak the other. "
+                            "B starts as a copy of A. Right-click to copy one onto the other.");
+        button->setColour (juce::TextButton::buttonOnColourId, Theme::accent);
+        addAndMakeVisible (*button);
+    }
+
+    slotAButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+    slotBButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+    slotAButton.setToggleState (true, juce::dontSendNotification);
+    slotAButton.onClick = [this] { switchSlot (0); };
+    slotBButton.onClick = [this] { switchSlot (1); };
+
+    slotAButton.onRightClick = [this] { showSlotMenu (slotAButton); };
+    slotBButton.onRightClick = [this] { showSlotMenu (slotBButton); };
+
+    setWantsKeyboardFocus (true);
+    history.reset (engine.getPresets().snapshot());
+    refreshHistoryButtons();
+
     tunerButton.setTooltip ("Show the tuner.");
     tunerButton.onClick = [this] { showTuner(); };
     addAndMakeVisible (tunerButton);
@@ -146,9 +178,16 @@ void MainComponent::resized()
     tunerButton.setBounds (topRow.removeFromRight (80));
     topRow.removeFromRight (8);
     practiceButton.setBounds (topRow.removeFromRight (90));
-    topRow.removeFromRight (24);
-    title.setBounds (topRow.removeFromLeft (200));
-    presetBar.setBounds (topRow.removeFromRight (juce::jmin (420, topRow.getWidth())));
+    topRow.removeFromRight (16);
+    slotBButton.setBounds (topRow.removeFromRight (30));
+    slotAButton.setBounds (topRow.removeFromRight (30));
+    topRow.removeFromRight (8);
+    redoButton.setBounds (topRow.removeFromRight (50));
+    topRow.removeFromRight (4);
+    undoButton.setBounds (topRow.removeFromRight (50));
+    topRow.removeFromRight (16);
+    title.setBounds (topRow.removeFromLeft (180));
+    presetBar.setBounds (topRow.removeFromRight (juce::jmin (400, topRow.getWidth())));
 
     header.removeFromTop (12);
     statusLine.setBounds (header.removeFromLeft (header.getWidth() * 2 / 5));
@@ -467,6 +506,14 @@ void MainComponent::timerCallback()
     if (detailPanel != nullptr)
         detailPanel->refreshDimming();
 
+    // Record settled changes for undo, about four times a second.
+    if (++ticksSinceHistoryCheck >= meterRefreshHz / 4)
+    {
+        ticksSinceHistoryCheck = 0;
+        history.observe (engine.getPresets().snapshot());
+        refreshHistoryButtons();
+    }
+
     // The CPU and dropout figures change continuously, so refresh them a few times a second.
     if (++ticksSinceStatusRefresh >= meterRefreshHz / 3)
         refreshStatus();
@@ -503,6 +550,110 @@ void MainComponent::refreshStatus()
                             + juce::String (juce::roundToInt (status.cpuUsage * 100.0)) + "%  |  dropouts "
                             + juce::String (juce::jmax (0, status.xruns)),
                         juce::dontSendNotification);
+}
+
+//==============================================================================
+bool MainComponent::keyPressed (const juce::KeyPress& key)
+{
+    const auto modifiers = key.getModifiers();
+    const auto code = key.getKeyCode();
+
+    if (modifiers.isCommandDown() && (code == 'Z' || code == 'z'))
+    {
+        if (modifiers.isShiftDown())
+            redo();
+        else
+            undo();
+
+        return true;
+    }
+
+    if (modifiers.isCommandDown() && (code == 'Y' || code == 'y'))
+    {
+        redo();
+        return true;
+    }
+
+    if (modifiers.isCommandDown() && (code == 'F' || code == 'f'))
+    {
+        presetBar.showFinder();
+        return true;
+    }
+
+    return false;
+}
+
+void MainComponent::applyState (const juce::String& state)
+{
+    juce::var parsed;
+
+    if (state.isEmpty() || juce::JSON::parse (state, parsed).failed())
+        return;
+
+    PresetManager::apply (engine.getChain(), parsed);
+
+    // Every knob may have changed, so the open panel is rebuilt too.
+    panelBlock = nullptr;
+    rebuildChain (chainStrip.getSelected());
+}
+
+void MainComponent::undo()
+{
+    applyState (history.undo());
+    refreshHistoryButtons();
+}
+
+void MainComponent::redo()
+{
+    applyState (history.redo());
+    refreshHistoryButtons();
+}
+
+void MainComponent::switchSlot (int slot)
+{
+    if (slot == activeSlot)
+        return;
+
+    const auto current = engine.getPresets().snapshot();
+    slots[(size_t) activeSlot] = current;
+
+    // The first time B is used it starts as a copy of A, so nothing changes yet.
+    if (slots[(size_t) slot].isEmpty())
+        slots[(size_t) slot] = current;
+    else
+        applyState (slots[(size_t) slot]);
+
+    activeSlot = slot;
+    slotAButton.setToggleState (activeSlot == 0, juce::dontSendNotification);
+    slotBButton.setToggleState (activeSlot == 1, juce::dontSendNotification);
+}
+
+void MainComponent::showSlotMenu (juce::Component& target)
+{
+    const auto other = 1 - activeSlot;
+    const juce::String active (activeSlot == 0 ? "A" : "B"), inactive (other == 0 ? "A" : "B");
+
+    juce::PopupMenu menu;
+    menu.addItem (1, "Copy " + active + " onto " + inactive);
+    menu.addItem (2, "Copy " + inactive + " onto " + active, slots[(size_t) other].isNotEmpty());
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+                        [safe = juce::Component::SafePointer<MainComponent> (this), other] (int result)
+                        {
+                            if (safe == nullptr)
+                                return;
+
+                            if (result == 1)
+                                safe->slots[(size_t) other] = safe->engine.getPresets().snapshot();
+                            else if (result == 2)
+                                safe->applyState (safe->slots[(size_t) other]);
+                        });
+}
+
+void MainComponent::refreshHistoryButtons()
+{
+    undoButton.setEnabled (history.canUndo());
+    redoButton.setEnabled (history.canRedo());
 }
 
 void MainComponent::showAudioSettings()
