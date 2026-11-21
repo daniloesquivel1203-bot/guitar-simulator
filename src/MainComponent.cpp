@@ -264,7 +264,9 @@ void MainComponent::rebuildChain (int fallbackIndex)
                                     return safe->removePedal (s, index);
                         }
                     });
-                });
+                },
+                SharedTempo { [this] { return engine.getPractice().getMetronome().getBpm(); },
+                              [this] (double bpm) { PracticePanel::setTempo (engine, bpm); } });
             });
         }
 

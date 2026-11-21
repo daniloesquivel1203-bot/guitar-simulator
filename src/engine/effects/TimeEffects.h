@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Effect.h"
+#include "TempoSync.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -90,8 +91,11 @@ public:
     Parameter feedback { "delay.feedback", "Feedback",  0.0f,  90.0f,   35.0f,  1.0f, " %" };
     Parameter mix      { "delay.mix",      "Mix",       0.0f,  100.0f,  30.0f,  1.0f, " %" };
     Parameter pingPong { "delay.pingPong", "Ping-pong", 0.0f,  1.0f,    0.0f,   1.0f };
+    Parameter sync     { "delay.sync",     "Sync",      tempo_sync::choiceNames() };
 
-    std::vector<Parameter*> getControls() override   { return { &time, &feedback, &mix, &pingPong }; }
+    std::vector<Parameter*> getControls() override   { return { &time, &feedback, &mix, &pingPong, &sync }; }
+    Parameter* getTapTimeParameter() noexcept override     { return &time; }
+    Parameter* getTempoSyncParameter() noexcept override   { return &sync; }
 
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;

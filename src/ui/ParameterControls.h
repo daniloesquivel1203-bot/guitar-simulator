@@ -43,6 +43,15 @@ public:
         slider.setBounds (area);
     }
 
+    Parameter& getParameter() noexcept   { return parameter; }
+
+    /** Call when the parameter may have been changed from somewhere else. */
+    void refresh()
+    {
+        if (! juce::exactlyEqual ((float) slider.getValue(), parameter.get()))
+            slider.setValue (parameter.get(), juce::dontSendNotification);
+    }
+
 private:
     Parameter& parameter;
     juce::Slider slider;
