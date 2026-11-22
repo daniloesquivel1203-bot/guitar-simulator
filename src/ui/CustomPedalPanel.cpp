@@ -12,6 +12,94 @@ constexpr int tileGap = 10;
 }
 
 //==============================================================================
+/** The Width knob of the band-pass, notch and peak blocks. Underneath it is
+    the filter's Q, but it reads as the width of the affected band in Hz at
+    the block's current frequency (about frequency / Q), and turning it right
+    makes the band wider. */
+class CustomPedalPanel::WidthKnob final : public juce::Component,
+                                          private juce::Timer
+{
+public:
+    WidthKnob (Parameter& qToUse, Parameter& frequencyToUse)
+        : q (qToUse), frequency (frequencyToUse)
+    {
+        slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 84, 20);
+        slider.setTooltip ("Width: how wide a band of frequencies around the centre this block works on. "
+                           "Turn right for wider. Drag, scroll, or type a width in Hz. Double-click to reset.");
+        slider.setRange (0.0, 1.0);
+        slider.textFromValueFunction = [this] (double position) { return formatHz (frequency.get() / qFromPosition (position)); };
+        slider.valueFromTextFunction = [this] (const juce::String& text)
+        {
+            auto hz = text.retainCharacters ("0123456789.").getDoubleValue();
+
+            if (text.containsIgnoreCase ("k"))
+                hz *= 1000.0;
+
+            return hz > 0.0 ? positionFromQ (frequency.get() / hz) : slider.getValue();
+        };
+        slider.setDoubleClickReturnValue (true, positionFromQ (q.defaultValue));
+        slider.setValue (positionFromQ (q.get()), juce::dontSendNotification);
+        slider.onValueChange = [this] { q.set ((float) qFromPosition (slider.getValue())); };
+        addAndMakeVisible (slider);
+
+        caption.setText ("Width", juce::dontSendNotification);
+        caption.setJustificationType (juce::Justification::centred);
+        caption.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        caption.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
+        addAndMakeVisible (caption);
+
+        lastFrequency = frequency.get();
+        startTimerHz (15);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        caption.setBounds (area.removeFromTop (18));
+        slider.setBounds (area);
+    }
+
+private:
+    /** Position 0 is the narrowest band (highest Q), 1 the widest (lowest Q), spread by ratio. */
+    double qFromPosition (double position) const
+    {
+        const auto narrow = std::log ((double) q.maxValue), wide = std::log ((double) q.minValue);
+        return std::exp (narrow + juce::jlimit (0.0, 1.0, position) * (wide - narrow));
+    }
+
+    double positionFromQ (double value) const
+    {
+        const auto narrow = std::log ((double) q.maxValue), wide = std::log ((double) q.minValue);
+        return juce::jlimit (0.0, 1.0, (std::log (juce::jmax (1.0e-3, value)) - narrow) / (wide - narrow));
+    }
+
+    static juce::String formatHz (double hz)
+    {
+        if (hz >= 1000.0)
+            return juce::String (hz / 1000.0, hz >= 10000.0 ? 0 : 1) + " kHz";
+
+        return juce::String (juce::roundToInt (hz)) + " Hz";
+    }
+
+    /** The width in Hz depends on the Frequency knob too, so it follows it. */
+    void timerCallback() override
+    {
+        if (! juce::exactlyEqual (frequency.get(), lastFrequency))
+        {
+            lastFrequency = frequency.get();
+            slider.updateText();
+        }
+    }
+
+    Parameter& q;
+    Parameter& frequency;
+    juce::Slider slider;
+    juce::Label caption;
+    float lastFrequency = 0.0f;
+};
+
+//==============================================================================
 CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void()> onRemovePedal)
     : TonePanel ("CUSTOM PEDAL", &pedalToUse.enabled),
       pedal (pedalToUse),
@@ -41,12 +129,20 @@ CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void(
     description.setFont (juce::FontOptions (13.0f));
     addChildComponent (description);
 
+    bandRange.setJustificationType (juce::Justification::topLeft);
+    bandRange.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
+    bandRange.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    bandRange.setTooltip ("The range of frequencies this block works on. At the edges its effect has dropped to about half.");
+    addChildComponent (bandRange);
+
     removeBlockButton.setTooltip ("Take the selected block out of this pedal.");
     removeBlockButton.onClick = [this] { removeBlock (selectedSlot); };
     addChildComponent (removeBlockButton);
 
     refreshBlocks();
 }
+
+CustomPedalPanel::~CustomPedalPanel() = default;
 
 void CustomPedalPanel::refreshBlocks()
 {
@@ -62,6 +158,7 @@ void CustomPedalPanel::selectBlock (int slot)
 {
     selectedSlot = slot;
     knobs.clear();
+    widthKnobs.clear();
     choices.clear();
     switches.clear();
 
@@ -69,6 +166,7 @@ void CustomPedalPanel::selectBlock (int slot)
     hint.setVisible (blocks.empty());
     description.setVisible (hasBlock);
     removeBlockButton.setVisible (hasBlock);
+    bandRange.setVisible (false);
 
     if (hasBlock)
     {
@@ -81,13 +179,50 @@ void CustomPedalPanel::selectBlock (int slot)
                 addAndMakeVisible (choices.add (new ParameterChoice (*control.parameter, control.caption)));
             else if (control.parameter->isSwitch())
                 addAndMakeVisible (switches.add (new ParameterToggle (*control.parameter)));
+            else if (control.parameter == &s.resonance && juce::String (control.caption) == "Width")
+                addAndMakeVisible (widthKnobs.add (new WidthKnob (s.resonance, s.frequency)));
             else
                 addAndMakeVisible (knobs.add (new ParameterKnob (*control.parameter, control.caption)));
         }
     }
 
     blockRow.repaint();
+    timerCallback();
+
+    if (widthKnobs.isEmpty())
+        stopTimer();
+    else
+        startTimerHz (15);
+
     resized();
+}
+
+void CustomPedalPanel::timerCallback()
+{
+    if (selectedSlot < 0 || widthKnobs.isEmpty())
+    {
+        bandRange.setVisible (false);
+        return;
+    }
+
+    // The edges of a band of width f / Q, spaced evenly by ratio around f
+    // (the -3 dB points of a band-pass filter).
+    auto& slot = pedal.getSlot (selectedSlot);
+    const auto f = (double) slot.frequency.get();
+    const auto q = (double) slot.resonance.get();
+    const auto half = 1.0 / (2.0 * q);
+    const auto root = std::sqrt (1.0 + half * half);
+    const auto low = f * (root - half);
+    const auto high = juce::jmin (20000.0, f * (root + half));
+
+    const auto format = [] (double hz)
+    {
+        return hz >= 1000.0 ? juce::String (hz / 1000.0, hz >= 10000.0 ? 0 : 2) + " kHz"
+                            : juce::String (juce::roundToInt (hz)) + " Hz";
+    };
+
+    bandRange.setText ("Band: " + format (low) + " to " + format (high), juce::dontSendNotification);
+    bandRange.setVisible (true);
 }
 
 void CustomPedalPanel::resized()
@@ -112,7 +247,9 @@ void CustomPedalPanel::resized()
     // Below the row: a description and a Remove button on the left, then the block's controls.
     auto side = area.removeFromLeft (200);
     removeBlockButton.setBounds (side.removeFromBottom (28).removeFromLeft (120));
-    description.setBounds (side.withTrimmedBottom (6));
+    side.removeFromBottom (6);
+    bandRange.setBounds (side.removeFromBottom (22));
+    description.setBounds (side);
     area.removeFromLeft (16);
 
     if (! switches.isEmpty() || ! choices.isEmpty())
@@ -131,6 +268,9 @@ void CustomPedalPanel::resized()
     std::vector<juce::Component*> row;
 
     for (auto* knob : knobs)
+        row.push_back (knob);
+
+    for (auto* knob : widthKnobs)
         row.push_back (knob);
 
     layoutKnobRow (area, row);

@@ -569,8 +569,8 @@ std::vector<CustomPedal::Control> CustomPedal::getControlsFor (Slot& slot, Block
         case BlockType::lowPass:
         case BlockType::highPass:   return { { &slot.frequency, "Cutoff" }, { &slot.resonance, "Resonance" }, { &slot.slope, "Slope" } };
         case BlockType::bandPass:
-        case BlockType::notch:      return { { &slot.frequency, "Centre" }, { &slot.resonance, "Narrowness" } };
-        case BlockType::peak:       return { { &slot.frequency, "Frequency" }, { &slot.gainDb, "Boost/Cut" }, { &slot.resonance, "Narrowness" } };
+        case BlockType::notch:      return { { &slot.frequency, "Centre" }, { &slot.resonance, "Width" } };
+        case BlockType::peak:       return { { &slot.frequency, "Frequency" }, { &slot.gainDb, "Boost/Cut" }, { &slot.resonance, "Width" } };
         case BlockType::lowShelf:
         case BlockType::highShelf:  return { { &slot.frequency, "Frequency" }, { &slot.gainDb, "Boost/Cut" } };
         case BlockType::gain:       return { { &slot.gainDb, "Level" }, { &slot.invert, "Invert" } };

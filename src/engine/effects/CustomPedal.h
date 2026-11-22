@@ -129,7 +129,9 @@ public:
         to position `to`, counted after it has left its old place. */
     void moveBlock (int from, int to);
 
-    /** The knobs a block of this type uses, with the caption each shows. */
+    /** The knobs a block of this type uses, with the caption each shows.
+        A "Width" control is the resonance parameter (Q), which the panel
+        shows as a width in Hz around the block's frequency. */
     struct Control
     {
         Parameter* parameter;
