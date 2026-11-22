@@ -31,7 +31,7 @@ void TapeEcho::reset()
     highPass.reset();
     wowLfo.reset();
     flutterLfo.reset (0.3);
-    delaySamples.setCurrentAndTargetValue ((float) (time.get() * 0.001 * sampleRate));
+    delaySamples.setCurrentAndTargetValue ((float) (tempo_sync::timeMs (time, sync, getTempo()) * 0.001 * sampleRate));
     wet.setCurrentAndTargetValue (mix.get() * 0.01f);
     feedbackGain.setCurrentAndTargetValue (repeats.get() * 0.01f);
 }
@@ -41,7 +41,7 @@ void TapeEcho::process (float* left, float* right, int numSamples) noexcept
     if (! shouldProcess())
         return;
 
-    delaySamples.setTargetValue ((float) (time.get() * 0.001 * sampleRate));
+    delaySamples.setTargetValue ((float) (tempo_sync::timeMs (time, sync, getTempo()) * 0.001 * sampleRate));
     wet.setTargetValue (mix.get() * 0.01f);
     feedbackGain.setTargetValue (repeats.get() * 0.01f);
 
@@ -87,7 +87,7 @@ void AnalogDelay::reset()
     lowPassA.reset();
     lowPassB.reset();
     lfo.reset();
-    delaySamples.setCurrentAndTargetValue ((float) (time.get() * 0.001 * sampleRate));
+    delaySamples.setCurrentAndTargetValue ((float) (tempo_sync::timeMs (time, sync, getTempo()) * 0.001 * sampleRate));
     wet.setCurrentAndTargetValue (mix.get() * 0.01f);
     feedbackGain.setCurrentAndTargetValue (feedback.get() * 0.01f);
 }
@@ -97,12 +97,12 @@ void AnalogDelay::process (float* left, float* right, int numSamples) noexcept
     if (! shouldProcess())
         return;
 
-    delaySamples.setTargetValue ((float) (time.get() * 0.001 * sampleRate));
+    delaySamples.setTargetValue ((float) (tempo_sync::timeMs (time, sync, getTempo()) * 0.001 * sampleRate));
     wet.setTargetValue (mix.get() * 0.01f);
     feedbackGain.setTargetValue (feedback.get() * 0.01f);
 
     // A bucket-brigade chip clocks slower for longer delays, so it gets darker.
-    const auto cutoff = 5000.0 * std::pow (20.0 / time.get(), 0.3);
+    const auto cutoff = 5000.0 * std::pow (20.0 / tempo_sync::timeMs (time, sync, getTempo()), 0.3);
     const auto coefficient = onePoleCoefficient (sampleRate, cutoff);
     const auto swing = modulation.get() * 0.04f * (float) (0.001 * sampleRate);   // up to 0.4 ms
 
@@ -121,6 +121,11 @@ void AnalogDelay::process (float* left, float* right, int numSamples) noexcept
 }
 
 //==============================================================================
+int ReverseDelay::currentSliceLength() const noexcept
+{
+    return juce::jmax (2, (int) (tempo_sync::timeMs (time, sync, getTempo()) * 0.001 * sampleRate));
+}
+
 void ReverseDelay::prepare (double newSampleRate, int)
 {
     sampleRate = newSampleRate;
@@ -136,7 +141,7 @@ void ReverseDelay::reset()
     writeIndex = 0;
     position = 0;
     lastOut = 0.0f;
-    sliceLength = juce::jmax (2, (int) (time.get() * 0.001 * sampleRate));
+    sliceLength = currentSliceLength();
     wet.setCurrentAndTargetValue (mix.get() * 0.01f);
     feedbackGain.setCurrentAndTargetValue (feedback.get() * 0.01f);
 }
@@ -181,7 +186,7 @@ void ReverseDelay::process (float* left, float* right, int numSamples) noexcept
             position = 0;
 
             // Only change the slice length between slices.
-            sliceLength = juce::jmax (2, (int) (time.get() * 0.001 * sampleRate));
+            sliceLength = currentSliceLength();
         }
 
         const auto amount = wet.getNextValue();

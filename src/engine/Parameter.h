@@ -33,6 +33,14 @@ public:
         choices.assign (choiceNames.begin(), choiceNames.end());
     }
 
+    /** The same, for a list of options shared by several parameters. */
+    Parameter (const char* idToUse, const char* nameToUse, const std::vector<const char*>& choiceNames,
+               int defaultIndex = 0)
+        : Parameter (idToUse, nameToUse, 0.0f, (float) choiceNames.size() - 1.0f, (float) defaultIndex, 1.0f)
+    {
+        choices = choiceNames;
+    }
+
     float get() const noexcept              { return value.load (std::memory_order_relaxed); }
     bool isOn() const noexcept              { return get() >= 0.5f; }
     int getIndex() const noexcept           { return juce::roundToInt (get()); }

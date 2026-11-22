@@ -3,7 +3,9 @@
 #include "../engine/AmpCapture.h"
 #include "../engine/AmpModel.h"
 #include "../engine/Cabinet.h"
+#include "../engine/Practice.h"
 #include "../engine/effects/Effect.h"
+#include "../engine/effects/TempoSync.h"
 #include "ParameterControls.h"
 
 /** A titled, rounded box that the amp and cabinet controls sit in. */
@@ -87,19 +89,45 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
+/** The tempo shared by the metronome and the delays' Sync setting. */
+struct SharedTempo
+{
+    std::function<double()> get;
+    std::function<void (double bpm)> set;
+};
+
 /** Controls for any pedal, built from the pedal's own list of parameters.
-    With `onRemove` set, a Remove button calls it. */
-class EffectPanel final : public TonePanel
+    With `onRemove` set, a Remove button calls it.
+
+    Delays also get a Tap button. With Sync off, tapping sets the Time knob to
+    the gap between taps. With Sync on, tapping sets the shared tempo (the
+    metronome's), and the delay follows it. */
+class EffectPanel final : public TonePanel,
+                          private juce::Timer
 {
 public:
-    explicit EffectPanel (Effect&, std::function<void()> onRemove = {});
+    explicit EffectPanel (Effect&, std::function<void()> onRemove = {}, SharedTempo tempo = {});
     void resized() override;
     void refreshPower() override   { power.refresh(); }
 
 private:
+    void timerCallback() override;
+    void tapped();
+    void refreshTempoInfo();
+
+    Effect& effect;
+    SharedTempo sharedTempo;
     ParameterToggle power;
     juce::TextButton removeButton { "Remove" };
     juce::OwnedArray<ParameterKnob> knobs;
     juce::OwnedArray<ParameterToggle> switches;
     juce::OwnedArray<ParameterChoice> choices;
+
+    Parameter* tapTime = nullptr;
+    Parameter* tempoSync = nullptr;
+    ParameterKnob* timeKnob = nullptr;
+    juce::TextButton tapButton { "Tap" };
+    juce::Label tempoInfo;
+    std::unique_ptr<TapTempo> tapTempo;
+    double keepTappingUntil = 0.0;
 };
