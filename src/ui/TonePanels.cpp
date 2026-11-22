@@ -321,9 +321,13 @@ void CabinetPanel::chooseFile()
 }
 
 //==============================================================================
-EffectPanel::EffectPanel (Effect& effect, std::function<void()> onRemove)
-    : TonePanel (juce::String (effect.name).toUpperCase(), &effect.enabled),
-      power (effect.enabled)
+EffectPanel::EffectPanel (Effect& effectToUse, std::function<void()> onRemove, SharedTempo tempo)
+    : TonePanel (juce::String (effectToUse.name).toUpperCase(), &effectToUse.enabled),
+      effect (effectToUse),
+      sharedTempo (std::move (tempo)),
+      power (effectToUse.enabled),
+      tapTime (effectToUse.getTapTimeParameter()),
+      tempoSync (effectToUse.getTempoSyncParameter())
 {
     addAndMakeVisible (power);
 
@@ -341,8 +345,100 @@ EffectPanel::EffectPanel (Effect& effect, std::function<void()> onRemove)
         else if (control->isSwitch())
             addAndMakeVisible (switches.add (new ParameterToggle (*control)));
         else
-            addAndMakeVisible (knobs.add (new ParameterKnob (*control)));
+        {
+            auto* knob = knobs.add (new ParameterKnob (*control));
+            addAndMakeVisible (knob);
+
+            if (control == tapTime)
+                timeKnob = knob;
+        }
     }
+
+    if (tapTime != nullptr && tempoSync != nullptr)
+    {
+        tapTempo = std::make_unique<TapTempo>();
+
+        tapButton.setTooltip ("Tap along with the beat to set the delay time. With Sync on, "
+                              "this sets the metronome's tempo, and the delay follows it.");
+        tapButton.onClick = [this] { tapped(); };
+        addAndMakeVisible (tapButton);
+
+        tempoInfo.setFont (juce::FontOptions (12.0f));
+        tempoInfo.setJustificationType (juce::Justification::centredLeft);
+        tempoInfo.setMinimumHorizontalScale (0.8f);
+        tempoInfo.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
+        addAndMakeVisible (tempoInfo);
+
+        refreshTempoInfo();
+        startTimerHz (10);
+    }
+}
+
+void EffectPanel::tapped()
+{
+    const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    const auto bpm = tapTempo->tap (now);
+
+    // A single tap cannot give a tempo yet.
+    keepTappingUntil = bpm.has_value() ? 0.0 : now + 2.0;
+
+    if (! bpm.has_value())
+    {
+        refreshTempoInfo();
+        return;
+    }
+
+    if (tempo_sync::isSynced (*tempoSync) && sharedTempo.set != nullptr)
+    {
+        sharedTempo.set (std::round (*bpm));
+    }
+    else
+    {
+        // The gap between taps is the time between echoes.
+        tapTime->set ((float) std::round (60000.0 / *bpm));
+
+        if (timeKnob != nullptr)
+            timeKnob->refresh();
+    }
+
+    refreshTempoInfo();
+}
+
+void EffectPanel::timerCallback()
+{
+    refreshTempoInfo();
+}
+
+void EffectPanel::refreshTempoInfo()
+{
+    const bool synced = tempo_sync::isSynced (*tempoSync);
+
+    // The Time knob does nothing while the delay follows the tempo.
+    if (timeKnob != nullptr)
+    {
+        const bool dim = synced || ! effect.enabled.isOn();
+        timeKnob->setAlpha (dim ? 0.4f : 1.0f);
+        timeKnob->refresh();
+    }
+
+    juce::String text;
+
+    if (juce::Time::getMillisecondCounterHiRes() / 1000.0 < keepTappingUntil)
+    {
+        text = "Keep tapping...";
+    }
+    else if (synced)
+    {
+        const auto bpm = sharedTempo.get != nullptr ? sharedTempo.get() : 100.0;
+        const auto ms = tempo_sync::noteMs (bpm, tempoSync->getIndex(), tapTime->minValue, tapTime->maxValue);
+        text = juce::String (juce::roundToInt (bpm)) + " BPM: " + juce::String (juce::roundToInt (ms)) + " ms";
+    }
+    else
+    {
+        text = "Tap sets the time";
+    }
+
+    tempoInfo.setText (text, juce::dontSendNotification);
 }
 
 void EffectPanel::resized()
@@ -353,20 +449,28 @@ void EffectPanel::resized()
     removeButton.setBounds (header.removeFromRight (80));
 
     auto area = getContentArea();
+    const bool hasTap = tapTempo != nullptr;
 
-    // Choices and switches sit in a column on the right, and the knobs are
-    // centred in what is left.
-    if (! switches.isEmpty() || ! choices.isEmpty())
+    // Choices, switches and the Tap button sit in a column on the right, and
+    // the knobs are centred in what is left.
+    if (! switches.isEmpty() || ! choices.isEmpty() || hasTap)
     {
         auto column = area.removeFromRight (150);
         column = column.withSizeKeepingCentre (column.getWidth(),
-                                               choices.size() * ParameterChoice::preferredHeight + switches.size() * 32);
+                                               choices.size() * ParameterChoice::preferredHeight + switches.size() * 32
+                                                   + (hasTap ? 30 + 20 : 0));
 
         for (auto* choice : choices)
             choice->setBounds (column.removeFromTop (ParameterChoice::preferredHeight).withTrimmedBottom (4));
 
         for (auto* toggle : switches)
             toggle->setBounds (column.removeFromTop (32).reduced (0, 3));
+
+        if (hasTap)
+        {
+            tapButton.setBounds (column.removeFromTop (30).reduced (0, 2));
+            tempoInfo.setBounds (column.removeFromTop (20));
+        }
     }
 
     std::vector<juce::Component*> row;

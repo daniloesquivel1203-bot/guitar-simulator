@@ -255,6 +255,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
     float* left = outputChannelData[0];
     float* right = numOutputChannels > 1 ? outputChannelData[1] : left;
 
+    // Delays set to Sync follow the metronome's tempo, whether or not it is clicking.
+    chain.getBoard().setTempo (practice.getMetronome().getBpm());
     chain.process (guitar, left, right, numSamples);
 
     // The looper, take recorder and metronome work on the finished sound.

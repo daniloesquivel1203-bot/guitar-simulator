@@ -86,7 +86,7 @@ void Delay::reset()
     lineA.clear();
     lineB.clear();
     dampA = dampB = 0.0f;
-    delaySamples.setCurrentAndTargetValue ((float) (time.get() * 0.001 * sampleRate));
+    delaySamples.setCurrentAndTargetValue ((float) (tempo_sync::timeMs (time, sync, getTempo()) * 0.001 * sampleRate));
     wet.setCurrentAndTargetValue (mix.get() * 0.01f);
     feedbackGain.setCurrentAndTargetValue (feedback.get() * 0.01f);
 }
@@ -96,7 +96,7 @@ void Delay::process (float* left, float* right, int numSamples) noexcept
     if (! shouldProcess())
         return;
 
-    delaySamples.setTargetValue ((float) (time.get() * 0.001 * sampleRate));
+    delaySamples.setTargetValue ((float) (tempo_sync::timeMs (time, sync, getTempo()) * 0.001 * sampleRate));
     wet.setTargetValue (mix.get() * 0.01f);
     feedbackGain.setTargetValue (feedback.get() * 0.01f);
     const bool bounce = pingPong.isOn();

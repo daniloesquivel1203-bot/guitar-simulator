@@ -206,6 +206,13 @@ PracticePanel::PracticePanel (AudioEngine& engineToUse)
 
 PracticePanel::~PracticePanel() = default;
 
+void PracticePanel::setTempo (AudioEngine& engine, double bpm)
+{
+    auto& metronome = engine.getPractice().getMetronome();
+    metronome.setBpm (bpm);
+    engine.getSettings().setValue (bpmKey, metronome.getBpm());
+}
+
 void PracticePanel::applySettings()
 {
     auto& settings = engine.getSettings();
@@ -364,6 +371,12 @@ void PracticePanel::paint (juce::Graphics& g)
 
 void PracticePanel::timerCallback()
 {
+    // A delay's Tap button can change the tempo too.
+    const auto tempo = tools.getMetronome().getBpm();
+
+    if (! bpm.isMouseButtonDown() && ! juce::exactlyEqual (bpm.getValue(), tempo))
+        bpm.setValue (tempo, juce::dontSendNotification);
+
     const auto beat = tools.getMetronome().getCurrentBeat();
 
     if (beat != shownBeat)

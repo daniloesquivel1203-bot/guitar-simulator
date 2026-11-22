@@ -152,6 +152,14 @@ void Pedal::setFedByGuitar (bool isFedByGuitar) noexcept
         twin->setFedByGuitar (isFedByGuitar);
 }
 
+void Pedal::setTempo (double bpm) noexcept
+{
+    effect->setTempo (bpm);
+
+    if (twin != nullptr)
+        twin->setTempo (bpm);
+}
+
 void Pedal::processMono (float* samples, int numSamples) noexcept
 {
     if (mono != nullptr)
@@ -379,6 +387,7 @@ void Pedalboard::processBeforeAmp (float* mono, int numSamples) noexcept
     for (auto& pedal : active->pedals[beforeAmp])
     {
         pedal->setFedByGuitar (fedByGuitar);
+        pedal->setTempo (tempo);
         pedal->processMono (mono, numSamples);
         fedByGuitar = fedByGuitar && ! pedal->getEffect().enabled.isOn();
     }
@@ -393,6 +402,7 @@ void Pedalboard::processAfterAmp (float* left, float* right, int numSamples) noe
     for (auto& pedal : active->pedals[afterAmp])
     {
         pedal->setFedByGuitar (false);
+        pedal->setTempo (tempo);
 
         if (pedal->isStereo() && ! isStereo)
         {

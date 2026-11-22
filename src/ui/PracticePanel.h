@@ -23,6 +23,9 @@ public:
     /** True while anything here is running, so the header can show it. */
     static bool isBusy (PracticeTools&);
 
+    /** Sets the metronome's tempo, which synced delays follow, and remembers it. */
+    static void setTempo (AudioEngine&, double bpm);
+
 private:
     void timerCallback() override;
 

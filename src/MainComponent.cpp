@@ -270,7 +270,9 @@ void MainComponent::rebuildChain (int fallbackIndex)
                 if (auto* custom = dynamic_cast<CustomPedal*> (&pedal->getEffect()))
                     return std::make_unique<CustomPedalPanel> (*custom, std::move (onRemove));
 
-                return std::make_unique<EffectPanel> (pedal->getEffect(), std::move (onRemove));
+                return std::make_unique<EffectPanel> (pedal->getEffect(), std::move (onRemove),
+                    SharedTempo { [this] { return engine.getPractice().getMetronome().getBpm(); },
+                                  [this] (double bpm) { PracticePanel::setTempo (engine, bpm); } });
             });
         }
 

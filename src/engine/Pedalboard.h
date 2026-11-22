@@ -63,6 +63,9 @@ public:
 
     /** Audio thread. See Effect::setFedByGuitar(). */
     void setFedByGuitar (bool isFedByGuitar) noexcept;
+
+    /** Audio thread. See Effect::setTempo(). */
+    void setTempo (double bpm) noexcept;
     bool isStereo() const noexcept       { return stereo != nullptr; }
 
     /** Every parameter, starting with the on/off switch. */
@@ -149,6 +152,10 @@ public:
     /** Audio thread, once per chunk before the processing calls. */
     void beginChunk() noexcept;
 
+    /** Audio thread. The shared tempo the delays can follow, in beats per
+        minute. Passed to every pedal before it runs. */
+    void setTempo (double bpm) noexcept   { tempo = bpm; }
+
     /** Audio thread. Mono in, mono out. */
     void processBeforeAmp (float* mono, int numSamples) noexcept;
 
@@ -181,6 +188,7 @@ private:
     std::mutex prepareMutex;
     double sampleRate = 48000.0;
     int blockSize = 512;
+    double tempo = 100.0;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> fade { 1.0f };
 

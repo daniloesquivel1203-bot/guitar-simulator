@@ -2,6 +2,7 @@
 
 #include "DspHelpers.h"
 #include "Effect.h"
+#include "TempoSync.h"
 
 /** A tape echo: each repeat gets darker and more saturated, and the tape's
     uneven speed makes the echoes waver. Turn Repeats right up for runaway
@@ -16,8 +17,11 @@ public:
     Parameter mix     { "tape.mix",     "Mix",     0.0f,  100.0f,  35.0f,  1.0f, " %" };
     Parameter wow     { "tape.wow",     "Wow",     0.0f,  10.0f,   3.0f };
     Parameter age     { "tape.age",     "Age",     0.0f,  10.0f,   4.0f };
+    Parameter sync    { "tape.sync",    "Sync",    tempo_sync::choiceNames() };
 
-    std::vector<Parameter*> getControls() override   { return { &time, &repeats, &mix, &wow, &age }; }
+    std::vector<Parameter*> getControls() override   { return { &time, &repeats, &mix, &wow, &age, &sync }; }
+    Parameter* getTapTimeParameter() noexcept override     { return &time; }
+    Parameter* getTempoSyncParameter() noexcept override   { return &sync; }
 
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;
@@ -43,8 +47,11 @@ public:
     Parameter feedback   { "analogdelay.feedback",   "Feedback",   0.0f,  100.0f, 45.0f,  1.0f, " %" };
     Parameter mix        { "analogdelay.mix",        "Mix",        0.0f,  100.0f, 35.0f,  1.0f, " %" };
     Parameter modulation { "analogdelay.modulation", "Modulation", 0.0f,  10.0f,  3.0f };
+    Parameter sync       { "analogdelay.sync",       "Sync",       tempo_sync::choiceNames() };
 
-    std::vector<Parameter*> getControls() override   { return { &time, &feedback, &mix, &modulation }; }
+    std::vector<Parameter*> getControls() override   { return { &time, &feedback, &mix, &modulation, &sync }; }
+    Parameter* getTapTimeParameter() noexcept override     { return &time; }
+    Parameter* getTempoSyncParameter() noexcept override   { return &sync; }
 
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;
@@ -68,14 +75,19 @@ public:
     Parameter time     { "reverse.time",     "Time",     150.0f, 1500.0f, 500.0f, 1.0f, " ms", true };
     Parameter feedback { "reverse.feedback", "Feedback", 0.0f,   80.0f,   30.0f,  1.0f, " %" };
     Parameter mix      { "reverse.mix",      "Mix",      0.0f,   100.0f,  50.0f,  1.0f, " %" };
+    Parameter sync     { "reverse.sync",     "Sync",     tempo_sync::choiceNames() };
 
-    std::vector<Parameter*> getControls() override   { return { &time, &feedback, &mix }; }
+    std::vector<Parameter*> getControls() override   { return { &time, &feedback, &mix, &sync }; }
+    Parameter* getTapTimeParameter() noexcept override     { return &time; }
+    Parameter* getTempoSyncParameter() noexcept override   { return &sync; }
 
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;
     void process (float* left, float* right, int numSamples) noexcept override;
 
 private:
+    int currentSliceLength() const noexcept;
+
     double sampleRate = 48000.0;
     std::vector<float> buffer;
     int writeIndex = 0;
