@@ -41,6 +41,13 @@ CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void(
     description.setFont (juce::FontOptions (13.0f));
     addChildComponent (description);
 
+    bandReadout.setJustificationType (juce::Justification::centredLeft);
+    bandReadout.setColour (juce::Label::textColourId, Theme::accent);
+    bandReadout.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    bandReadout.setBorderSize ({});
+    bandReadout.setTooltip ("How much of the tone this block acts on. Raise Narrowness to focus it on a thinner slice.");
+    addChildComponent (bandReadout);
+
     removeBlockButton.setTooltip ("Take the selected block out of this pedal.");
     removeBlockButton.onClick = [this] { removeBlock (selectedSlot); };
     addChildComponent (removeBlockButton);
@@ -86,8 +93,31 @@ void CustomPedalPanel::selectBlock (int slot)
         }
     }
 
+    const auto type = hasBlock ? pedal.getSlot (slot).getType() : BlockType::empty;
+    const bool showsBand = type == BlockType::bandPass || type == BlockType::notch || type == BlockType::peak;
+    bandReadout.setVisible (showsBand);
+
+    if (showsBand)
+    {
+        timerCallback();
+        startTimerHz (15);
+    }
+    else
+    {
+        stopTimer();
+    }
+
     blockRow.repaint();
     resized();
+}
+
+void CustomPedalPanel::timerCallback()
+{
+    if (selectedSlot < 0)
+        return;
+
+    auto& s = pedal.getSlot (selectedSlot);
+    bandReadout.setText (custom_blocks::describeBand (s.frequency.get(), s.resonance.get()), juce::dontSendNotification);
 }
 
 void CustomPedalPanel::resized()
@@ -112,7 +142,12 @@ void CustomPedalPanel::resized()
     // Below the row: a description and a Remove button on the left, then the block's controls.
     auto side = area.removeFromLeft (200);
     removeBlockButton.setBounds (side.removeFromBottom (28).removeFromLeft (120));
-    description.setBounds (side.withTrimmedBottom (6));
+    side.removeFromBottom (4);
+
+    if (bandReadout.isVisible())
+        bandReadout.setBounds (side.removeFromBottom (34));
+
+    description.setBounds (side.withTrimmedBottom (2));
     area.removeFromLeft (16);
 
     if (! switches.isEmpty() || ! choices.isEmpty())

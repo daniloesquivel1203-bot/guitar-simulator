@@ -52,6 +52,30 @@ std::unique_ptr<CustomPedal> withBlock (BlockType type)
 }
 }
 
+TEST_CASE ("the band readout gives the width around the centre")
+{
+    const auto band = custom_blocks::getBand (800.0f, 2.0f);
+    CHECK_THAT (band.getWidth(), Catch::Matchers::WithinAbs (400.0f, 0.1f));
+    CHECK_THAT (band.lowHz * band.highHz, Catch::Matchers::WithinRel (800.0f * 800.0f, 0.001f));
+    CHECK (custom_blocks::describeBand (800.0f, 2.0f) == "Width: about 400 Hz\n625 Hz to 1.02 kHz");
+
+    // A higher Narrowness is a thinner band, and the top stops at 20 kHz.
+    CHECK (custom_blocks::getBand (800.0f, 8.0f).getWidth() < band.getWidth());
+    CHECK (custom_blocks::getBand (18000.0f, 0.3f).highHz == 20000.0f);
+}
+
+TEST_CASE ("the band readout matches where a band-pass block falls 3 dB")
+{
+    auto pedal = withBlock (BlockType::bandPass);
+    auto& slot = pedal->getSlot (pedal->getBlocksInOrder().front());
+    slot.frequency.set (800.0f);
+    slot.resonance.set (2.0f);
+
+    const auto band = custom_blocks::getBand (800.0f, 2.0f);
+    CHECK_THAT (responseDb (*pedal, band.lowHz), Catch::Matchers::WithinAbs (-3.0, 0.25));
+    CHECK_THAT (responseDb (*pedal, band.highHz), Catch::Matchers::WithinAbs (-3.0, 0.25));
+}
+
 TEST_CASE ("an empty custom pedal passes the signal through untouched")
 {
     auto pedal = makeCustom();

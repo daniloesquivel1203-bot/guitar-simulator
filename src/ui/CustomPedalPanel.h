@@ -11,7 +11,8 @@
     Click a block to show its controls. Drag a block to move it. Right-click
     a block, or use the Remove block button, to take it out.
 */
-class CustomPedalPanel final : public TonePanel
+class CustomPedalPanel final : public TonePanel,
+                               private juce::Timer
 {
 public:
     CustomPedalPanel (CustomPedal&, std::function<void()> onRemovePedal);
@@ -57,13 +58,14 @@ private:
     void showAddMenu (juce::Rectangle<int> screenArea);
     void showBlockMenu (int slot);
     void removeBlock (int slot);
+    void timerCallback() override;   // keeps the band readout in step with the knobs
 
     CustomPedal& pedal;
     ParameterToggle power;
     juce::TextButton removePedalButton { "Remove" };
     BlockRow blockRow { *this };
     ParameterKnob level;
-    juce::Label hint, description;
+    juce::Label hint, description, bandReadout;
     juce::TextButton removeBlockButton { "Remove block" };
 
     std::vector<int> blocks;   // slots in signal order

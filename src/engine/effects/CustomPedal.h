@@ -35,6 +35,21 @@ const char* getShortName (BlockType) noexcept;
 /** One sentence on what the block does to the sound. */
 const char* getDescription (BlockType) noexcept;
 
+/** The stretch of frequencies a band-pass, notch or peak block acts on: its
+    -3 dB points, or for a peak the points at half its boost or cut. */
+struct Band
+{
+    float lowHz, highHz;
+
+    float getWidth() const noexcept   { return highHz - lowHz; }
+};
+
+/** The band around `centreHz` at a Narrowness of `q`, stopping at 20 kHz. */
+Band getBand (float centreHz, float q) noexcept;
+
+/** The band in words, on two lines: its width, then where it starts and ends. */
+juce::String describeBand (float centreHz, float q);
+
 /** A two-integrator state-variable filter in the "trapezoidal" form, which
     stays stable and click-free while its cutoff moves. Mixing its three
     internal signals gives every filter shape a block needs: low-pass,

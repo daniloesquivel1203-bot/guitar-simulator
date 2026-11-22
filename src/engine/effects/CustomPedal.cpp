@@ -66,6 +66,28 @@ const char* getDescription (BlockType type) noexcept
     return "";
 }
 
+Band getBand (float centreHz, float q) noexcept
+{
+    q = juce::jmax (0.05f, q);
+    const auto halfRatio = 0.5f / q;
+    const auto root = std::sqrt (1.0f + halfRatio * halfRatio);
+    return { centreHz * (root - halfRatio), juce::jmin (20000.0f, centreHz * (root + halfRatio)) };
+}
+
+juce::String describeBand (float centreHz, float q)
+{
+    const auto format = [] (float hz)
+    {
+        if (hz < 999.5f)
+            return juce::String (juce::roundToInt (hz)) + " Hz";
+
+        return juce::String (hz / 1000.0f, hz < 9995.0f ? 2 : 1) + " kHz";
+    };
+
+    const auto band = getBand (centreHz, q);
+    return "Width: about " + format (band.getWidth()) + "\n" + format (band.lowHz) + " to " + format (band.highHz);
+}
+
 void SvfStage::setCoefficients (BlockType type, float hz, float q, float gainDb, double sampleRate) noexcept
 {
     constexpr auto pi = juce::MathConstants<float>::pi;
