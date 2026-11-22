@@ -372,3 +372,164 @@ TEST_CASE ("a full custom pedal uses little processor time", "[.][performance]")
     WARN ("8 blocks: " << share << "% of one core");
     REQUIRE (share < 5.0);
 }
+
+//==============================================================================
+TEST_CASE ("a new modulator moves the block before it, and removing that block frees it")
+{
+    auto pedal = makeCustom();
+    const auto filter = pedal->addBlock (BlockType::lowPass);
+    const auto lfo = pedal->addBlock (BlockType::lfo);
+    REQUIRE (pedal->getSlot (lfo).getTargetSlot() == filter);
+
+    // Modulators cannot move themselves or another modulator.
+    const auto env = pedal->addBlock (BlockType::envelope);
+    REQUIRE (pedal->getSlot (env).getTargetSlot() == filter);
+    REQUIRE_FALSE (pedal->setTarget (env, lfo));
+    REQUIRE_FALSE (pedal->setTarget (env, env));
+
+    pedal->removeBlock (filter);
+    REQUIRE (pedal->getSlot (lfo).getTargetSlot() == -1);
+    REQUIRE (pedal->getSlot (env).getTargetSlot() == -1);
+}
+
+TEST_CASE ("modulators make no sound of their own")
+{
+    auto pedal = makeCustom();
+    pedal->addBlock (BlockType::lfo);
+    pedal->addBlock (BlockType::envelope);
+    pedal->reset();
+
+    const auto in = test::sine (440.0, 0.3f, sampleRate, 4800);
+    const auto out = run (*pedal, in);
+
+    for (size_t i = 0; i < in.size(); ++i)
+        REQUIRE_THAT (out[i], Catch::Matchers::WithinAbs (in[i], 1.0e-6));
+}
+
+TEST_CASE ("an LFO on a gain block makes a tremolo at its rate")
+{
+    auto pedal = makeCustom();
+    pedal->addBlock (BlockType::gain);
+    const auto lfo = pedal->addBlock (BlockType::lfo);
+    pedal->getSlot (lfo).rate.set (4.0f);
+    pedal->getSlot (lfo).depth.set (100.0f);
+    pedal->reset();
+
+    const auto out = run (*pedal, test::sine (1000.0, 0.2f, sampleRate, 48000));
+
+    // Peak level in 5 ms windows swings from near silence to about double.
+    float lowest = 1.0f, highest = 0.0f;
+
+    for (size_t start = 2400; start + 240 <= out.size(); start += 240)
+    {
+        float windowPeak = 0.0f;
+
+        for (size_t i = start; i < start + 240; ++i)
+            windowPeak = juce::jmax (windowPeak, std::abs (out[i]));
+
+        lowest = juce::jmin (lowest, windowPeak);
+        highest = juce::jmax (highest, windowPeak);
+    }
+
+    REQUIRE (lowest < 0.03f);
+    REQUIRE (highest > 0.35f);
+}
+
+TEST_CASE ("an LFO sweeps a filter's cutoff")
+{
+    auto pedal = makeCustom();
+    const auto filter = pedal->addBlock (BlockType::lowPass);
+    pedal->getSlot (filter).frequency.set (1000.0f);
+    const auto lfo = pedal->addBlock (BlockType::lfo);
+    pedal->getSlot (lfo).rate.set (2.0f);
+    pedal->getSlot (lfo).depth.set (100.0f);
+    pedal->reset();
+
+    // A 2 kHz tone is cut hard when the cutoff dips to 125 Hz and passes when it rises to 8 kHz.
+    const auto out = run (*pedal, test::sine (2000.0, 0.2f, sampleRate, 48000));
+    float lowest = 1.0f, highest = 0.0f;
+
+    for (size_t start = 4800; start + 480 <= out.size(); start += 480)
+    {
+        float windowPeak = 0.0f;
+
+        for (size_t i = start; i < start + 480; ++i)
+            windowPeak = juce::jmax (windowPeak, std::abs (out[i]));
+
+        lowest = juce::jmin (lowest, windowPeak);
+        highest = juce::jmax (highest, windowPeak);
+    }
+
+    REQUIRE (lowest < 0.01f);
+    REQUIRE (highest > 0.18f);
+    REQUIRE (test::allFinite (out));
+}
+
+TEST_CASE ("an envelope opens a filter when you play harder")
+{
+    auto pedal = makeCustom();
+    const auto filter = pedal->addBlock (BlockType::lowPass);
+    pedal->getSlot (filter).frequency.set (300.0f);
+    const auto env = pedal->addBlock (BlockType::envelope);
+    pedal->getSlot (env).depth.set (100.0f);
+
+    const auto levelOf = [&] (float amplitude)
+    {
+        pedal->reset();
+        const auto in = test::sine (2000.0, amplitude, sampleRate, 24000);
+        const auto out = run (*pedal, in);
+        return test::rms (out, 12000) / test::rms (in, 12000);
+    };
+
+    // Soft playing stays dark; hard playing lets the 2 kHz tone through much more.
+    REQUIRE (levelOf (0.3f) > 8.0 * levelOf (0.005f));
+}
+
+TEST_CASE ("modulators are saved in presets with their targets")
+{
+    SignalChain chain;
+    chain.prepare (sampleRate, blockSize);
+
+    Pedalboard::PedalList before { std::make_shared<Pedal> (*findPedalType ("custom")) }, after;
+    auto& custom = dynamic_cast<CustomPedal&> (before[0]->getEffect());
+    const auto filter = custom.addBlock (BlockType::bandPass);
+    const auto env = custom.addBlock (BlockType::envelope);
+    custom.getSlot (env).release.set (300.0f);
+    chain.getBoard().setPedals (before, after);
+
+    const auto saved = PresetManager::capture (chain, "Auto-wah");
+    Pedalboard::PedalList empty;
+    chain.getBoard().setPedals (empty, empty);
+    REQUIRE (PresetManager::apply (chain, saved));
+
+    auto& loaded = dynamic_cast<CustomPedal&> (chain.getBoard().getPedals (Pedalboard::beforeAmp)[0]->getEffect());
+    REQUIRE (loaded.getSlot (env).getType() == BlockType::envelope);
+    REQUIRE (loaded.getSlot (env).getTargetSlot() == filter);
+    REQUIRE_THAT (loaded.getSlot (env).release.get(), Catch::Matchers::WithinAbs (300.0, 0.01));
+}
+
+TEST_CASE ("adding a modulator while playing never clicks")
+{
+    auto pedal = makeCustom();
+    const auto filter = pedal->addBlock (BlockType::lowPass);
+    pedal->getSlot (filter).frequency.set (2000.0f);
+    pedal->reset();
+
+    auto out = test::sine (110.0, 0.3f, sampleRate, 48000);
+    const auto maxStep = 0.3f * juce::MathConstants<float>::twoPi * 110.0f / (float) sampleRate;
+
+    for (size_t offset = 0; offset < out.size(); offset += blockSize)
+    {
+        if (offset == 4800)   pedal->addBlock (BlockType::lfo);
+        if (offset == 24000)  pedal->removeBlock (pedal->getBlocksInOrder()[1]);
+
+        pedal->process (out.data() + offset, blockSize);
+    }
+
+    float worst = 0.0f;
+
+    for (size_t i = 1; i < out.size(); ++i)
+        worst = juce::jmax (worst, std::abs (out[i] - out[i - 1]));
+
+    REQUIRE (worst < maxStep * 2.0f);
+}

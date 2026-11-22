@@ -19,6 +19,8 @@ const char* getTypeName (BlockType type) noexcept
         case BlockType::highShelf:  return "High shelf EQ";
         case BlockType::gain:       return "Gain";
         case BlockType::clipper:    return "Clipper";
+        case BlockType::lfo:        return "LFO (moves a knob)";
+        case BlockType::envelope:   return "Envelope (follows your picking)";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -39,6 +41,8 @@ const char* getShortName (BlockType type) noexcept
         case BlockType::highShelf:  return "Hi Shelf";
         case BlockType::gain:       return "Gain";
         case BlockType::clipper:    return "Clip";
+        case BlockType::lfo:        return "LFO";
+        case BlockType::envelope:   return "Env";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -59,6 +63,8 @@ const char* getDescription (BlockType type) noexcept
         case BlockType::highShelf:  return "Boosts or cuts everything above the frequency by the same amount.";
         case BlockType::gain:       return "Turns the signal up or down. Invert flips its polarity.";
         case BlockType::clipper:    return "Squashes peaks to add distortion. Put filters before it to shape what distorts, and after it to tame fizz.";
+        case BlockType::lfo:        return "Makes no sound itself. It sweeps another block's main knob up and down at a steady rate: a filter for a wobble, a gain block for tremolo.";
+        case BlockType::envelope:   return "Makes no sound itself. It moves another block's main knob as you play harder: a band-pass for auto-wah. Negative depth moves it the other way.";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -91,6 +97,8 @@ void SvfStage::setCoefficients (BlockType type, float hz, float q, float gainDb,
         case BlockType::empty:
         case BlockType::gain:
         case BlockType::clipper:
+        case BlockType::lfo:
+        case BlockType::envelope:
         case BlockType::numTypes:   m0 = 1.0f; m1 = 0.0f;                     m2 = 0.0f;  break;
     }
 
@@ -113,11 +121,13 @@ const char* slotId (int slot, int field)
 {
     static const auto table = []
     {
-        static const char* const fields[] = { "type", "freq", "q", "gain", "drive", "shape", "slope", "invert" };
-        std::array<std::array<std::string, 8>, CustomPedal::maxBlocks> ids;
+        static const char* const fields[] = { "type", "freq", "q", "gain", "drive", "shape", "slope", "invert",
+                                              "rate", "depth", "target", "wave", "sens", "attack", "release" };
+        constexpr int numFields = (int) std::size (fields);
+        std::array<std::array<std::string, numFields>, CustomPedal::maxBlocks> ids;
 
         for (int s = 0; s < CustomPedal::maxBlocks; ++s)
-            for (int f = 0; f < 8; ++f)
+            for (int f = 0; f < numFields; ++f)
                 ids[(size_t) s][(size_t) f] = "custom.b" + std::to_string (s + 1) + "." + fields[f];
 
         return ids;
@@ -129,7 +139,7 @@ const char* slotId (int slot, int field)
 bool isFilter (BlockType type) noexcept
 {
     return type != BlockType::empty && type != BlockType::gain && type != BlockType::clipper
-        && type != BlockType::numTypes;
+        && ! custom_blocks::isModulator (type) && type != BlockType::numTypes;
 }
 
 float clip (float x, int shape) noexcept
@@ -147,14 +157,22 @@ float clip (float x, int shape) noexcept
 //==============================================================================
 CustomPedal::Slot::Slot (int index)
     : type (slotId (index, 0), "Type",
-            { "Empty", "Low-pass", "High-pass", "Band-pass", "Notch", "Peak", "Low shelf", "High shelf", "Gain", "Clipper" }),
+            { "Empty", "Low-pass", "High-pass", "Band-pass", "Notch", "Peak", "Low shelf", "High shelf", "Gain", "Clipper",
+              "LFO", "Envelope" }),
       frequency (slotId (index, 1), "Frequency", 20.0f, 20000.0f, 1000.0f, 1.0f, " Hz", true),
       resonance (slotId (index, 2), "Resonance", 0.3f, 10.0f, 0.707f, 0.01f, "", true),
       gainDb (slotId (index, 3), "Gain", -24.0f, 24.0f, 0.0f, 0.1f, " dB"),
       driveDb (slotId (index, 4), "Drive", 0.0f, 40.0f, 12.0f, 0.1f, " dB"),
       shape (slotId (index, 5), "Shape", { "Soft", "Hard", "Diode", "Asymmetric" }),
       slope (slotId (index, 6), "Slope", { "12 dB/oct", "24 dB/oct" }),
-      invert (slotId (index, 7), "Invert", 0.0f, 1.0f, 0.0f, 1.0f)
+      invert (slotId (index, 7), "Invert", 0.0f, 1.0f, 0.0f, 1.0f),
+      rate (slotId (index, 8), "Rate", 0.05f, 20.0f, 2.0f, 0.01f, " Hz", true),
+      depth (slotId (index, 9), "Depth", -100.0f, 100.0f, 50.0f, 1.0f, " %"),
+      target (slotId (index, 10), "Target", { "None", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Slot 6", "Slot 7", "Slot 8" }),
+      wave (slotId (index, 11), "Wave", { "Sine", "Triangle", "Square", "Ramp up", "Ramp down" }),
+      sensitivity (slotId (index, 12), "Sensitivity", 0.0f, 40.0f, 12.0f, 0.1f, " dB"),
+      attack (slotId (index, 13), "Attack", 1.0f, 200.0f, 10.0f, 0.1f, " ms", true),
+      release (slotId (index, 14), "Release", 10.0f, 1000.0f, 150.0f, 1.0f, " ms", true)
 {
 }
 
@@ -182,7 +200,9 @@ std::vector<Parameter*> CustomPedal::getControls()
 void CustomPedal::prepare (double sampleRate, int maxBlockSize)
 {
     rate = sampleRate;
-    dry.assign ((size_t) juce::jmax (1, maxBlockSize), 0.0f);
+    bufferSize = juce::jmax (1, maxBlockSize);
+    dry.assign ((size_t) bufferSize, 0.0f);
+    modulation.assign ((size_t) (bufferSize * maxBlocks), 0.0f);
     dcCoefficient = (float) std::exp (-juce::MathConstants<double>::twoPi * 10.0 / sampleRate);
 
     for (auto& runner : runners)
@@ -191,6 +211,7 @@ void CustomPedal::prepare (double sampleRate, int maxBlockSize)
         runner.resonance.reset (sampleRate, 0.03);
         runner.gainDb.reset (sampleRate, 0.03);
         runner.driveDb.reset (sampleRate, 0.03);
+        runner.depth.reset (sampleRate, 0.03);
     }
 
     wetMix.reset (sampleRate, crossfadeSeconds);
@@ -204,6 +225,8 @@ void CustomPedal::Runner::reset() noexcept
         stage.reset();
 
     dcX1 = dcY1 = 0.0f;
+    lfoPhase = 0.0;
+    envelope = 0.0f;
 }
 
 void CustomPedal::reset()
@@ -278,6 +301,7 @@ void CustomPedal::updateTargets (int index, bool snap) noexcept
         runner.resonance.setCurrentAndTargetValue (slot.resonance.get());
         runner.gainDb.setCurrentAndTargetValue (slot.gainDb.get());
         runner.driveDb.setCurrentAndTargetValue (slot.driveDb.get());
+        runner.depth.setCurrentAndTargetValue (slot.depth.get() * 0.01f);
     }
     else
     {
@@ -285,10 +309,11 @@ void CustomPedal::updateTargets (int index, bool snap) noexcept
         runner.resonance.setTargetValue (slot.resonance.get());
         runner.gainDb.setTargetValue (slot.gainDb.get());
         runner.driveDb.setTargetValue (slot.driveDb.get());
+        runner.depth.setTargetValue (slot.depth.get() * 0.01f);
     }
 }
 
-void CustomPedal::updateFilter (int index) noexcept
+void CustomPedal::updateFilter (int index, float frequencyRatio) noexcept
 {
     auto& runner = runners[(size_t) index];
     const auto type = applied.types[(size_t) index];
@@ -296,7 +321,7 @@ void CustomPedal::updateFilter (int index) noexcept
     if (! isFilter (type))
         return;
 
-    const auto hz = runner.frequency.getCurrentValue();
+    const auto hz = runner.frequency.getCurrentValue() * frequencyRatio;
     const auto q = runner.resonance.getCurrentValue();
     const auto gainDb = runner.gainDb.getCurrentValue();
 
@@ -316,7 +341,7 @@ void CustomPedal::updateFilter (int index) noexcept
     }
 }
 
-void CustomPedal::runSlot (int index, float* samples, int numSamples) noexcept
+void CustomPedal::runSlot (int index, float* samples, int numSamples, const float* mod) noexcept
 {
     auto& slot = *slots[(size_t) index];
     auto& runner = runners[(size_t) index];
@@ -326,7 +351,8 @@ void CustomPedal::runSlot (int index, float* samples, int numSamples) noexcept
 
     if (isFilter (type))
     {
-        const bool moving = runner.frequency.isSmoothing() || runner.resonance.isSmoothing() || runner.gainDb.isSmoothing();
+        const bool moving = runner.frequency.isSmoothing() || runner.resonance.isSmoothing() || runner.gainDb.isSmoothing()
+                            || mod != nullptr;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -337,8 +363,9 @@ void CustomPedal::runSlot (int index, float* samples, int numSamples) noexcept
                 runner.gainDb.getNextValue();
 
                 // Recalculating every 8 samples is smooth to the ear and a fraction of the cost.
+                // A modulator sweeps the frequency up to 3 octaves either way.
                 if ((i & 7) == 0)
-                    updateFilter (index);
+                    updateFilter (index, mod != nullptr ? std::exp2 (3.0f * mod[i]) : 1.0f);
             }
 
             auto x = runner.stages[0].process (samples[i]);
@@ -350,7 +377,7 @@ void CustomPedal::runSlot (int index, float* samples, int numSamples) noexcept
         }
 
         if (moving)
-            updateFilter (index);
+            updateFilter (index, mod != nullptr ? std::exp2 (3.0f * mod[numSamples - 1]) : 1.0f);
 
         return;
     }
@@ -359,8 +386,10 @@ void CustomPedal::runSlot (int index, float* samples, int numSamples) noexcept
     {
         const auto sign = slot.invert.isOn() ? -1.0f : 1.0f;
 
+        // A modulator scales the level between silence and double (full depth).
         for (int i = 0; i < numSamples; ++i)
-            samples[i] *= sign * juce::Decibels::decibelsToGain (runner.gainDb.getNextValue());
+            samples[i] *= sign * juce::Decibels::decibelsToGain (runner.gainDb.getNextValue())
+                        * (mod != nullptr ? juce::jmax (0.0f, 1.0f + mod[i]) : 1.0f);
 
         return;
     }
@@ -372,7 +401,9 @@ void CustomPedal::runSlot (int index, float* samples, int numSamples) noexcept
 
         for (int i = 0; i < numSamples; ++i)
         {
-            const auto drive = juce::Decibels::decibelsToGain (runner.driveDb.getNextValue());
+            // A modulator pushes the drive up to 24 dB either way.
+            const auto drive = juce::Decibels::decibelsToGain (runner.driveDb.getNextValue()
+                                                               + (mod != nullptr ? 24.0f * mod[i] : 0.0f));
             const auto output = juce::Decibels::decibelsToGain (runner.gainDb.getNextValue());
             auto y = clipCeiling * clip (samples[i] * drive / clipCeiling, shape);
 
@@ -388,6 +419,133 @@ void CustomPedal::runSlot (int index, float* samples, int numSamples) noexcept
             samples[i] = y * output;
         }
     }
+}
+
+void CustomPedal::runModulators (const float* input, int numSamples) noexcept
+{
+    isModulated.fill (false);
+
+    for (auto slot : activeSlots)
+    {
+        const auto type = applied.types[(size_t) slot];
+
+        if (! custom_blocks::isModulator (type))
+            continue;
+
+        auto& s = *slots[(size_t) slot];
+        auto& runner = runners[(size_t) slot];
+        const auto targetSlot = s.getTargetSlot();
+        updateTargets (slot, false);
+
+        // A modulator with nothing valid to move still runs, so its phase keeps going.
+        const bool hasTarget = juce::isPositiveAndBelow (targetSlot, maxBlocks) && targetSlot != slot
+                               && getModulatedKnobName (applied.types[(size_t) targetSlot])[0] != 0;
+
+        float* out = nullptr;
+
+        if (hasTarget)
+        {
+            out = modulation.data() + targetSlot * bufferSize;
+
+            if (! isModulated[(size_t) targetSlot])
+            {
+                std::fill (out, out + numSamples, 0.0f);
+                isModulated[(size_t) targetSlot] = true;
+            }
+        }
+
+        if (type == BlockType::lfo)
+        {
+            const auto step = (double) s.rate.get() / rate;
+            const auto wave = s.wave.getIndex();
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                runner.lfoPhase += step;
+                runner.lfoPhase -= std::floor (runner.lfoPhase);
+                const auto p = runner.lfoPhase;
+                float value = 0.0f;
+
+                switch (wave)
+                {
+                    case triangle:  value = (float) (p < 0.5 ? 4.0 * p - 1.0 : 3.0 - 4.0 * p); break;
+                    case square:    value = std::tanh (6.0f * std::sin (juce::MathConstants<float>::twoPi * (float) p)) / std::tanh (6.0f); break;
+                    case rampUp:    value = (float) (2.0 * p - 1.0); break;
+                    case rampDown:  value = (float) (1.0 - 2.0 * p); break;
+                    default:        value = std::sin (juce::MathConstants<float>::twoPi * (float) p); break;
+                }
+
+                const auto depth = runner.depth.getNextValue();
+
+                if (out != nullptr)
+                    out[i] += depth * value;
+            }
+        }
+        else
+        {
+            // Follows how hard you play: fast up (attack), slower down (release).
+            const auto gain = juce::Decibels::decibelsToGain (s.sensitivity.get()) / clipCeiling;
+            const auto up = (float) (1.0 - std::exp (-1.0 / (s.attack.get() * 0.001 * rate)));
+            const auto down = (float) (1.0 - std::exp (-1.0 / (s.release.get() * 0.001 * rate)));
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto x = std::abs (input[i]) * gain;
+                runner.envelope += (x > runner.envelope ? up : down) * (x - runner.envelope);
+                const auto depth = runner.depth.getNextValue();
+
+                if (out != nullptr)
+                    out[i] += depth * juce::jmin (1.0f, runner.envelope);
+            }
+        }
+    }
+
+    // Several modulators on one knob add up, within the full range.
+    for (int slot = 0; slot < maxBlocks; ++slot)
+        if (isModulated[(size_t) slot])
+            for (auto* p = modulation.data() + slot * bufferSize, * end = p + numSamples; p != end; ++p)
+                *p = juce::jlimit (-1.0f, 1.0f, *p);
+}
+
+const char* CustomPedal::getModulatedKnobName (BlockType type) noexcept
+{
+    switch (type)
+    {
+        case BlockType::lowPass:
+        case BlockType::highPass:   return "cutoff";
+        case BlockType::bandPass:
+        case BlockType::notch:      return "centre";
+        case BlockType::peak:
+        case BlockType::lowShelf:
+        case BlockType::highShelf:  return "frequency";
+        case BlockType::gain:       return "level";
+        case BlockType::clipper:    return "drive";
+        case BlockType::empty:
+        case BlockType::lfo:
+        case BlockType::envelope:
+        case BlockType::numTypes:   break;
+    }
+
+    return "";
+}
+
+bool CustomPedal::setTarget (int modulatorSlot, int targetSlot)
+{
+    if (! juce::isPositiveAndBelow (modulatorSlot, maxBlocks))
+        return false;
+
+    if (targetSlot < 0)
+    {
+        slots[(size_t) modulatorSlot]->target.set (0.0f);
+        return true;
+    }
+
+    if (! juce::isPositiveAndBelow (targetSlot, maxBlocks) || targetSlot == modulatorSlot
+        || getModulatedKnobName (slots[(size_t) targetSlot]->getType())[0] == 0)
+        return false;
+
+    slots[(size_t) modulatorSlot]->target.set ((float) (targetSlot + 1));
+    return true;
 }
 
 void CustomPedal::process (float* samples, int numSamples) noexcept
@@ -416,8 +574,11 @@ void CustomPedal::process (float* samples, int numSamples) noexcept
     if (blending)
         std::copy (samples, samples + numSamples, dry.data());
 
+    runModulators (samples, numSamples);
+
     for (auto slot : activeSlots)
-        runSlot (slot, samples, numSamples);
+        runSlot (slot, samples, numSamples,
+                 isModulated[(size_t) slot] ? modulation.data() + slot * bufferSize : nullptr);
 
     if (blending)
         for (int i = 0; i < numSamples; ++i)
@@ -491,6 +652,13 @@ int CustomPedal::addBlock (BlockType type)
         case BlockType::highShelf:  slot.frequency.set (3000.0f); slot.gainDb.set (4.0f); break;
         case BlockType::gain:       break;
         case BlockType::clipper:    slot.gainDb.set (-4.0f); break;
+        case BlockType::lfo:
+        case BlockType::envelope:
+            // Point it at the nearest block before it that it can move.
+            for (auto it = inUse.rbegin(); it != inUse.rend(); ++it)
+                if (setTarget (chosen, *it))
+                    break;
+            break;
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -519,6 +687,11 @@ void CustomPedal::removeBlock (int slotIndex)
         return;
 
     slots[(size_t) slotIndex]->type.set ((float) BlockType::empty);
+
+    // Modulators that moved it now move nothing.
+    for (auto& slot : slots)
+        if (slot->getTargetSlot() == slotIndex)
+            slot->target.set (0.0f);
 
     // Empty slots wait at the end of the order.
     const auto inUse = getBlocksInOrder();
@@ -575,6 +748,9 @@ std::vector<CustomPedal::Control> CustomPedal::getControlsFor (Slot& slot, Block
         case BlockType::highShelf:  return { { &slot.frequency, "Frequency" }, { &slot.gainDb, "Boost/Cut" } };
         case BlockType::gain:       return { { &slot.gainDb, "Level" }, { &slot.invert, "Invert" } };
         case BlockType::clipper:    return { { &slot.driveDb, "Drive" }, { &slot.gainDb, "Output" }, { &slot.shape, "Shape" } };
+        case BlockType::lfo:        return { { &slot.rate, "Rate" }, { &slot.depth, "Depth" }, { &slot.wave, "Wave" }, { &slot.target, "Moves" } };
+        case BlockType::envelope:   return { { &slot.sensitivity, "Sensitivity" }, { &slot.attack, "Attack" }, { &slot.release, "Release" },
+                                             { &slot.depth, "Depth" }, { &slot.target, "Moves" } };
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }

@@ -135,6 +135,21 @@ CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void(
     bandRange.setTooltip ("The range of frequencies this block works on. At the edges its effect has dropped to about half.");
     addChildComponent (bandRange);
 
+    targetCaption.setText ("Moves", juce::dontSendNotification);
+    targetCaption.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    targetCaption.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
+    addChildComponent (targetCaption);
+
+    targetBox.setTooltip ("The block whose main knob this modulator moves.");
+    targetBox.onChange = [this]
+    {
+        if (selectedSlot >= 0 && targetBox.getSelectedId() > 0)
+            pedal.setTarget (selectedSlot, targetBox.getSelectedId() - 2);
+
+        blockRow.repaint();
+    };
+    addChildComponent (targetBox);
+
     removeBlockButton.setTooltip ("Take the selected block out of this pedal.");
     removeBlockButton.onClick = [this] { removeBlock (selectedSlot); };
     addChildComponent (removeBlockButton);
@@ -167,6 +182,8 @@ void CustomPedalPanel::selectBlock (int slot)
     description.setVisible (hasBlock);
     removeBlockButton.setVisible (hasBlock);
     bandRange.setVisible (false);
+    targetBox.setVisible (false);
+    targetCaption.setVisible (false);
 
     if (hasBlock)
     {
@@ -175,7 +192,13 @@ void CustomPedalPanel::selectBlock (int slot)
 
         for (const auto& control : CustomPedal::getControlsFor (s, s.getType()))
         {
-            if (control.parameter->isChoice())
+            if (control.parameter == &s.target)
+            {
+                refreshTargetChoices();
+                targetBox.setVisible (true);
+                targetCaption.setVisible (true);
+            }
+            else if (control.parameter->isChoice())
                 addAndMakeVisible (choices.add (new ParameterChoice (*control.parameter, control.caption)));
             else if (control.parameter->isSwitch())
                 addAndMakeVisible (switches.add (new ParameterToggle (*control.parameter)));
@@ -195,6 +218,25 @@ void CustomPedalPanel::selectBlock (int slot)
         startTimerHz (15);
 
     resized();
+}
+
+void CustomPedalPanel::refreshTargetChoices()
+{
+    targetBox.clear (juce::dontSendNotification);
+    targetBox.addItem ("Nothing", 1);
+
+    for (int position = 0; position < (int) blocks.size(); ++position)
+    {
+        const auto slot = blocks[(size_t) position];
+        const auto type = pedal.getSlot (slot).getType();
+        const juce::String knob (CustomPedal::getModulatedKnobName (type));
+
+        if (slot != selectedSlot && knob.isNotEmpty())
+            targetBox.addItem (juce::String (position + 1) + ": " + custom_blocks::getShortName (type) + " " + knob, slot + 2);
+    }
+
+    const auto target = pedal.getSlot (selectedSlot).getTargetSlot();
+    targetBox.setSelectedId (target >= 0 ? target + 2 : 1, juce::dontSendNotification);
 }
 
 void CustomPedalPanel::timerCallback()
@@ -252,11 +294,21 @@ void CustomPedalPanel::resized()
     description.setBounds (side);
     area.removeFromLeft (16);
 
-    if (! switches.isEmpty() || ! choices.isEmpty())
+    const auto numTargetRows = targetBox.isVisible() ? 1 : 0;
+
+    if (! switches.isEmpty() || ! choices.isEmpty() || numTargetRows > 0)
     {
         auto column = area.removeFromRight (150);
         column = column.withSizeKeepingCentre (column.getWidth(),
-                                               choices.size() * ParameterChoice::preferredHeight + switches.size() * 32);
+                                               (choices.size() + numTargetRows) * ParameterChoice::preferredHeight
+                                                 + switches.size() * 32);
+
+        if (numTargetRows > 0)
+        {
+            auto row = column.removeFromTop (ParameterChoice::preferredHeight).withTrimmedBottom (4);
+            targetCaption.setBounds (row.removeFromTop (18));
+            targetBox.setBounds (row.removeFromTop (26));
+        }
 
         for (auto* choice : choices)
             choice->setBounds (column.removeFromTop (ParameterChoice::preferredHeight).withTrimmedBottom (4));
@@ -285,7 +337,7 @@ void CustomPedalPanel::showAddMenu (juce::Rectangle<int> screenArea)
     {
         const auto type = (BlockType) t;
 
-        if (type == BlockType::gain)
+        if (type == BlockType::gain || type == BlockType::lfo)
             menu.addSeparator();
 
         menu.addItem (t, custom_blocks::getTypeName (type));
@@ -402,8 +454,21 @@ void CustomPedalPanel::BlockRow::paintTile (juce::Graphics& g, int tile, juce::R
     const bool selected = slot == owner.selectedSlot;
     const auto type = owner.pedal.getSlot (slot).getType();
 
+    const bool modulator = custom_blocks::isModulator (type);
+
     g.setColour (selected ? Theme::raised : juce::Colour (0xff313a42));
     g.fillRoundedRectangle (area, 6.0f);
+
+    // Modulators make no sound, so they are drawn with a dashed outline.
+    if (modulator && ! selected)
+    {
+        juce::Path outline, dashed;
+        outline.addRoundedRectangle (area.reduced (0.75f), 6.0f);
+        const float dashes[] = { 4.0f, 3.0f };
+        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+        g.setColour (Theme::warning.withAlpha (0.7f));
+        g.fillPath (dashed);
+    }
 
     if (selected)
     {
@@ -411,10 +476,25 @@ void CustomPedalPanel::BlockRow::paintTile (juce::Graphics& g, int tile, juce::R
         g.drawRoundedRectangle (area.reduced (0.75f), 6.0f, 1.5f);
     }
 
+    auto text = area.toNearestInt().reduced (4, 0);
+    const auto target = modulator ? owner.pedal.getSlot (slot).getTargetSlot() : -1;
+    const auto targetPosition = (int) (std::find (owner.blocks.begin(), owner.blocks.end(), target) - owner.blocks.begin());
+    const bool showTarget = target >= 0 && targetPosition < (int) owner.blocks.size();
+
     g.setColour (juce::Colours::white.withAlpha (0.9f));
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawFittedText (custom_blocks::getShortName (type), area.toNearestInt().reduced (4, 0),
-                      juce::Justification::centred, 1, 0.7f);
+    g.drawFittedText (custom_blocks::getShortName (type), showTarget ? text.removeFromTop (text.getHeight() / 2 + 2) : text,
+                      showTarget ? juce::Justification::centredBottom : juce::Justification::centred, 1, 0.7f);
+
+    if (showTarget)
+    {
+        // Which block it moves, by its position in the row.
+        g.setColour (Theme::warning);
+        g.setFont (juce::FontOptions (11.0f));
+        g.drawFittedText (juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + juce::String (targetPosition + 1) + " "
+                            + custom_blocks::getShortName (owner.pedal.getSlot (target).getType()),
+                          text, juce::Justification::centredTop, 1, 0.7f);
+    }
 }
 
 void CustomPedalPanel::BlockRow::paint (juce::Graphics& g)

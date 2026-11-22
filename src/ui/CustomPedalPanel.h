@@ -69,6 +69,11 @@ private:
     BlockRow blockRow { *this };
     ParameterKnob level;
     juce::Label hint, description, bandRange;
+
+    // For modulators: which block they move.
+    juce::ComboBox targetBox;
+    juce::Label targetCaption;
+    void refreshTargetChoices();
     juce::TextButton removeBlockButton { "Remove block" };
 
     std::vector<int> blocks;   // slots in signal order

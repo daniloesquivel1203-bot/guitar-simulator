@@ -23,8 +23,14 @@ enum class BlockType
     highShelf,
     gain,
     clipper,
+    lfo,
+    envelope,
     numTypes
 };
+
+/** True for the LFO and Envelope blocks, which make no sound themselves but
+    move another block's main knob. */
+inline bool isModulator (BlockType type) noexcept   { return type == BlockType::lfo || type == BlockType::envelope; }
 
 /** The full name, as the add menu lists it. */
 const char* getTypeName (BlockType) noexcept;
@@ -64,7 +70,9 @@ struct SvfStage
 
 //==============================================================================
 /** A pedal you build yourself from up to eight blocks (filters, gain and a
-    clipper) that the guitar passes through in order.
+    clipper) that the guitar passes through in order. LFO and Envelope blocks
+    pass the sound unchanged and instead move another block's main knob, for
+    filter sweeps, auto-wah and tremolo.
 
     Every block slot has a fixed set of knobs, so the pedal's parameter list
     never changes. That keeps presets, undo, A/B and the stereo twin working
@@ -91,15 +99,32 @@ public:
 
         Parameter type, frequency, resonance, gainDb, driveDb, shape, slope, invert;
 
+        // Modulator (LFO and Envelope) controls. Target is 0 for none, or a slot number from 1.
+        Parameter rate, depth, target, wave, sensitivity, attack, release;
+
         std::vector<Parameter*> getParameters()
         {
-            return { &type, &frequency, &resonance, &gainDb, &driveDb, &shape, &slope, &invert };
+            return { &type, &frequency, &resonance, &gainDb, &driveDb, &shape, &slope, &invert,
+                     &rate, &depth, &target, &wave, &sensitivity, &attack, &release };
         }
+
+        /** The slot this modulator moves, or -1. */
+        int getTargetSlot() const noexcept   { return target.getIndex() - 1; }
 
         BlockType getType() const noexcept   { return (BlockType) type.getIndex(); }
     };
 
     enum Shape { soft = 0, hard, diode, asymmetric };
+    enum Wave { sine = 0, triangle, square, rampUp, rampDown };
+
+    /** What a modulator moves on a block of this type: the cutoff or
+        frequency of a filter, the level of a gain block, the drive of a
+        clipper. Empty for blocks that cannot be moved. */
+    static const char* getModulatedKnobName (BlockType) noexcept;
+
+    /** Points a modulator at another slot (or -1 for none). Refuses slots
+        that are empty, other modulators, or itself. */
+    bool setTarget (int modulatorSlot, int targetSlot);
 
     std::vector<Parameter*> getControls() override;
     void prepare (double sampleRate, int maxBlockSize) override;
@@ -162,8 +187,10 @@ private:
         std::array<custom_blocks::SvfStage, 2> stages;
         int numStages = 1;
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> frequency { 1000.0f }, resonance { 0.707f };
-        juce::SmoothedValue<float> gainDb, driveDb;
+        juce::SmoothedValue<float> gainDb, driveDb, depth;
         float dcX1 = 0.0f, dcY1 = 0.0f;
+        double lfoPhase = 0.0;
+        float envelope = 0.0f;
 
         void reset() noexcept;
     };
@@ -171,8 +198,9 @@ private:
     Structure readStructure() const noexcept;
     void applyStructure (const Structure&) noexcept;
     void updateTargets (int slot, bool snap) noexcept;
-    void updateFilter (int slot) noexcept;
-    void runSlot (int slot, float* samples, int numSamples) noexcept;
+    void updateFilter (int slot, float frequencyRatio = 1.0f) noexcept;
+    void runSlot (int slot, float* samples, int numSamples, const float* modulation) noexcept;
+    void runModulators (const float* input, int numSamples) noexcept;
 
     void setOrder (const Order&);
 
@@ -180,6 +208,11 @@ private:
     std::array<Runner, maxBlocks> runners;
     Structure applied;
     std::vector<int> activeSlots;   // reserved in the constructor, so the audio thread never allocates
+
+    // Per target slot: how far modulators push its main knob, -1 to 1 per sample.
+    std::vector<float> modulation;
+    std::array<bool, maxBlocks> isModulated {};
+    int bufferSize = 1;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMix { 1.0f };
     juce::SmoothedValue<float> outputGain { 1.0f };
