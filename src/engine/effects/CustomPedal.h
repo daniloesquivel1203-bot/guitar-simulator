@@ -205,8 +205,8 @@ public:
     static int encodeOrder (const Order&) noexcept;
 
     /** Message thread. The level change in dB, at each frequency, of the
-        filter and gain blocks as their knobs are set now (ignoring routing,
-        modulators, delays and distortion). `hasFilters` is false when there
+        filter, gain and all-pass blocks and the two paths, as their knobs are
+        set now (ignoring modulators, delays, the reducer and distortion). `hasFilters` is false when there
         are none to draw. */
     std::vector<float> getResponseDb (const std::vector<float>& frequencies, bool& hasFilters);
 

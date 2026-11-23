@@ -76,7 +76,7 @@ private:
 
     class WidthKnob;
 
-    /** The combined frequency response of the filter and gain blocks. */
+    /** The combined frequency response of the filter, gain and all-pass blocks and the paths. */
     class ResponseGraph final : public juce::Component,
                                 public juce::SettableTooltipClient
     {
