@@ -1,8 +1,10 @@
 #pragma once
 
 #include "engine/AudioEngine.h"
+#include "engine/CustomPedalLibrary.h"
 #include "engine/ToneHistory.h"
 #include "ui/ChainStrip.h"
+#include "ui/CustomPedalPanel.h"
 #include "ui/LevelMeter.h"
 #include "ui/PresetBar.h"
 #include "ui/TonePanels.h"
@@ -32,6 +34,7 @@ private:
     static void styleGainSlider (juce::Slider&, double minDb, double maxDb, double valueDb);
 
     AudioEngine& engine;
+    CustomPedalLibrary customPedals { engine.getPresets().getUserFolder().getSiblingFile ("Custom Pedals") };
 
     juce::Label title { {}, "Guitar Simulator" };
     juce::Label statusLine;

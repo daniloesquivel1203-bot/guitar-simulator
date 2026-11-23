@@ -10,6 +10,14 @@ const juce::Identifier captureKey { "ampCapture" };
 const juce::Identifier versionKey { "version" };
 const juce::Identifier boardKey { "board" };
 const juce::Identifier typeKey { "type" };
+const juce::Identifier labelKey { "label" };   // the name a player gave a Custom pedal
+
+/** Gives a Custom pedal the name stored with it; other pedals have none. */
+void applyLabel (Pedal& pedal, const juce::var& entry)
+{
+    if (auto* custom = dynamic_cast<CustomPedal*> (&pedal.getEffect()))
+        custom->label = entry[labelKey].toString();
+}
 const std::array<juce::Identifier, 2> sideKeys { juce::Identifier ("beforeAmp"), juce::Identifier ("afterAmp") };
 constexpr int currentVersion = 2;
 
@@ -210,6 +218,9 @@ juce::var PresetManager::capture (SignalChain& chain, const juce::String& name)
             auto entry = std::make_unique<juce::DynamicObject>();
             entry->setProperty (typeKey, pedal->type.key);
             entry->setProperty (parametersKey, captureValues (pedal->getParameters()));
+
+            if (auto* custom = dynamic_cast<CustomPedal*> (&pedal->getEffect()); custom != nullptr && custom->label.isNotEmpty())
+                entry->setProperty (labelKey, custom->label);
             pedals.add (juce::var (entry.release()));
         }
 
@@ -250,7 +261,10 @@ bool PresetManager::apply (SignalChain& chain, const juce::var& preset)
             const auto* entries = board[sideKeys[(size_t) side]].getArray();
 
             for (size_t i = 0; i < pedals.size(); ++i)
+            {
                 applyValues (pedals[i]->getParameters(), (*entries)[(int) i][parametersKey]);
+                applyLabel (*pedals[i], (*entries)[(int) i]);
+            }
         }
     }
     else
@@ -273,6 +287,7 @@ bool PresetManager::apply (SignalChain& chain, const juce::var& preset)
                         {
                             auto pedal = std::make_shared<Pedal> (*type);
                             applyValues (pedal->getParameters(), entry[parametersKey]);
+                            applyLabel (*pedal, entry);
                             list.push_back (std::move (pedal));
                         }
                     }

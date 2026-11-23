@@ -67,6 +67,9 @@ const std::vector<PedalType>& getPedalTypes()
         { "plate",       "Plate",    "Reverb",     maker<PlateReverb>() },
         { "hall",        "Hall",     "Reverb",     maker<HallReverb>() },
         { "shimmer",     "Shimmer",  "Reverb",     maker<ShimmerReverb>() },
+
+        // Built by the player from filter, gain and clipper blocks
+        { "custom",      "Custom",   "Custom",     maker<CustomPedal>() },
     };
 
     return types;
