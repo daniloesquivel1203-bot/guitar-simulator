@@ -26,7 +26,7 @@ const char* getTypeName (BlockType type) noexcept
         case BlockType::delay:      return "Delay line";
         case BlockType::allPass:    return "All-pass (phaser)";
         case BlockType::reducer:    return "Bit / rate reducer";
-        case BlockType::split:      return "Split (start two paths)";
+        case BlockType::split:      return "Split into two paths";
         case BlockType::pathB:      return "Path B (start the second path)";
         case BlockType::mix:        return "Mix (join the paths)";
         case BlockType::empty:
@@ -82,9 +82,9 @@ const char* getDescription (BlockType type) noexcept
         case BlockType::delay:      return "Repeats the signal after a delay. Short times with an LFO on Time give chorus and vibrato; long times give echoes.";
         case BlockType::allPass:    return "Shifts the timing of some frequencies and mixes that back in, cutting notches. Put an LFO on it for a phaser.";
         case BlockType::reducer:    return "Lowers the bit depth and sample rate for a gritty, lo-fi digital sound.";
-        case BlockType::split:      return "Copies the signal into two paths. Blocks after it are path A, up to a Path B marker or the Mix. With no Path B, path B is the clean signal.";
+        case BlockType::split:      return "Copies the signal into two paths. Drag blocks onto the top or bottom path; the + joins them again. Removing the split puts the blocks back in one line.";
         case BlockType::pathB:      return "Starts the second path. Blocks after it, up to the Mix, get the signal from the Split.";
-        case BlockType::mix:        return "Joins the two paths back together. Blend sets how much of path B you hear.";
+        case BlockType::mix:        return "Joins the two paths back together. Blend sets how much of the bottom path you hear.";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -999,17 +999,72 @@ int CustomPedal::addBlock (BlockType type)
     return chosen;
 }
 
+int CustomPedal::addSplit()
+{
+    if ((int) getBlocksInOrder().size() > maxBlocks - 3)
+        return -1;
+
+    const auto split = addBlock (BlockType::split);
+    addBlock (BlockType::pathB);
+    addBlock (BlockType::mix);
+    return split;
+}
+
+std::vector<int> CustomPedal::getSplitGroup (int slotIndex) const
+{
+    // Walks the blocks the way process() routes them.
+    std::vector<int> group;
+    bool inSplit = false, inPathB = false;
+
+    for (auto slot : getBlocksInOrder())
+    {
+        const auto type = slots[(size_t) slot]->getType();
+
+        if (type == BlockType::split && ! inSplit)
+        {
+            group = { slot };
+            inSplit = true;
+            inPathB = false;
+        }
+        else if (type == BlockType::pathB && inSplit && ! inPathB)
+        {
+            group.push_back (slot);
+            inPathB = true;
+        }
+        else if (type == BlockType::mix && inSplit)
+        {
+            group.push_back (slot);
+
+            if (std::find (group.begin(), group.end(), slotIndex) != group.end())
+                return group;
+
+            inSplit = inPathB = false;
+        }
+    }
+
+    if (inSplit && std::find (group.begin(), group.end(), slotIndex) != group.end())
+        return group;
+
+    return { slotIndex };
+}
+
 void CustomPedal::removeBlock (int slotIndex)
 {
     if (! juce::isPositiveAndBelow (slotIndex, maxBlocks))
         return;
 
-    slots[(size_t) slotIndex]->type.set ((float) BlockType::empty);
+    // Removing the Split or the + takes the whole branch's markers with it;
+    // the blocks on both paths stay, one after the other.
+    for (auto member : custom_blocks::isRouting (slots[(size_t) slotIndex]->getType()) ? getSplitGroup (slotIndex)
+                                                                                         : std::vector<int> { slotIndex })
+    {
+        slots[(size_t) member]->type.set ((float) BlockType::empty);
 
-    // Modulators that moved it now move nothing.
-    for (auto& slot : slots)
-        if (slot->getTargetSlot() == slotIndex)
-            slot->target.set (0.0f);
+        // Modulators that moved it now move nothing.
+        for (auto& slot : slots)
+            if (slot->getTargetSlot() == member)
+                slot->target.set (0.0f);
+    }
 
     // Empty slots wait at the end of the order.
     const auto inUse = getBlocksInOrder();

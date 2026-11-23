@@ -490,7 +490,14 @@ void CustomPedalPanel::showAddMenu (juce::Rectangle<int> screenArea)
         if (type == BlockType::gain || type == BlockType::lfo)
             menu.addSeparator();
 
-        menu.addItem (t, custom_blocks::getTypeName (type));
+        // A Split brings its lower path and its + along, so those are not offered alone.
+        if (type == BlockType::pathB || type == BlockType::mix)
+            continue;
+
+        if (type == BlockType::split)
+            menu.addItem (t, custom_blocks::getTypeName (type), (int) blocks.size() <= CustomPedal::maxBlocks - 3);
+        else
+            menu.addItem (t, custom_blocks::getTypeName (type));
     }
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
@@ -499,7 +506,8 @@ void CustomPedalPanel::showAddMenu (juce::Rectangle<int> screenArea)
                             if (safe == nullptr || result <= 0)
                                 return;
 
-                            const auto slot = safe->pedal.addBlock ((BlockType) result);
+                            const auto slot = (BlockType) result == BlockType::split ? safe->pedal.addSplit()
+                                                                                     : safe->pedal.addBlock ((BlockType) result);
 
                             if (slot >= 0)
                                 safe->selectedSlot = slot;
@@ -647,14 +655,14 @@ CustomPedalPanel::BlockRow::Layout CustomPedalPanel::BlockRow::makeLayout (int b
             xB = x;
             inSplit = true;
             inPathB = false;
-            layout.labelB = juce::Rectangle<float> (branch.x + 3.0f, bottomY - 14.0f, 12.0f, 12.0f);
         }
         else if (type == BlockType::pathB && inSplit && ! inPathB)
         {
+            // The marker for where the lower path starts is not drawn: the
+            // lane itself shows it, and blocks are dragged onto it.
             inPathB = true;
-            layout.labelB = {};   // the Path B marker names the lane itself
-            place ({ xB, bottomLane.getY(), nodeWidth, bottomLane.getHeight() }, Look::node, true);
-            xB += nodeWidth + tileGap;
+            layout.tiles.push_back ({ xB, bottomLane.getY(), 0, bottomLane.getHeight() });
+            layout.looks.push_back (Look::hidden);
         }
         else if (type == BlockType::mix && inSplit)
         {
@@ -709,7 +717,7 @@ CustomPedalPanel::BlockRow::Layout CustomPedalPanel::BlockRow::makeLayout (int b
 int CustomPedalPanel::BlockRow::findTileAt (const Layout& layout, juce::Point<int> position) const
 {
     for (int i = 0; i < (int) layout.tiles.size(); ++i)
-        if (layout.tiles[(size_t) i].contains (position))
+        if (layout.looks[(size_t) i] != Look::hidden && layout.tiles[(size_t) i].contains (position))
             return i;
 
     return -1;
@@ -875,16 +883,12 @@ void CustomPedalPanel::BlockRow::paint (juce::Graphics& g)
         g.fillPath (arrow);
     }
 
-    if (! layout.labelB.isEmpty())
-    {
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-        g.drawText ("B", layout.labelB, juce::Justification::centredLeft);
-    }
-
     for (int i = 0; i < (int) layout.tiles.size(); ++i)
     {
         const auto bounds = layout.tiles[(size_t) i].toFloat();
+
+        if (layout.looks[(size_t) i] == Look::hidden)
+            continue;
 
         if (drag.has_value() && drag->moved && drag->position == i)
         {

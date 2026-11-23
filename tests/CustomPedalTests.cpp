@@ -702,3 +702,33 @@ TEST_CASE ("the response graph follows the filter blocks")
     REQUIRE_THAT (db[1], Catch::Matchers::WithinAbs (3.0, 0.5));   // -3 dB at the cutoff, +6 from the gain
     REQUIRE (db[2] < -30.0f);
 }
+
+TEST_CASE ("a split comes with its lower path and +, and goes with them")
+{
+    auto pedal = makeCustom();
+    const auto filter = pedal->addBlock (BlockType::lowPass);
+    const auto split = pedal->addSplit();
+    REQUIRE (split >= 0);
+
+    auto order = pedal->getBlocksInOrder();
+    REQUIRE (order.size() == 4);
+    REQUIRE (pedal->getSlot (order[1]).getType() == BlockType::split);
+    REQUIRE (pedal->getSlot (order[2]).getType() == BlockType::pathB);
+    REQUIRE (pedal->getSlot (order[3]).getType() == BlockType::mix);
+
+    // A block dropped onto the lower path: after the hidden Path B marker.
+    const auto delay = pedal->addBlock (BlockType::delay);
+    pedal->moveBlock (4, 3);
+    REQUIRE (pedal->getSplitGroup (order[3]) == std::vector<int> { order[1], order[2], order[3] });
+
+    // Removing the + removes the whole branch, keeping the blocks in line.
+    pedal->removeBlock (order[3]);
+    REQUIRE (pedal->getBlocksInOrder() == std::vector<int> { filter, delay });
+
+    // No room for three markers: nothing is added.
+    for (int i = 0; i < 6; ++i)
+        pedal->addBlock (BlockType::gain);
+
+    REQUIRE (pedal->addSplit() == -1);
+    REQUIRE (pedal->getBlocksInOrder().size() == 8);
+}

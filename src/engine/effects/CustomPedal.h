@@ -171,8 +171,17 @@ public:
         slot, or -1 when all eight are in use. */
     int addBlock (BlockType);
 
-    /** Empties a slot. */
+    /** Empties a slot. For a Split, Path B or Mix marker, empties all the
+        markers of that branch, leaving its blocks in one line. */
     void removeBlock (int slot);
+
+    /** Adds a Split, an empty lower path and the Mix that joins them, after
+        the last block. Returns the Split's slot, or -1 without room for three. */
+    int addSplit();
+
+    /** The Split, Path B and Mix markers of the branch a marker belongs to,
+        or just the slot itself. */
+    std::vector<int> getSplitGroup (int slot) const;
 
     /** Moves the block at position `from` (counted among the blocks in use)
         to position `to`, counted after it has left its old place. */
