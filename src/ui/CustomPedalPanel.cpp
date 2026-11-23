@@ -106,7 +106,7 @@ private:
 //==============================================================================
 CustomPedalPanel::ResponseGraph::ResponseGraph()
 {
-    setTooltip ("How the filter and gain blocks change the level across the frequency range, "
+    setTooltip ("How the filter, gain and all-pass blocks, and any split paths, change the level across the frequency range, "
                 "from 20 Hz on the left to 20 kHz on the right. The middle line is no change; "
                 "the dotted lines are 12 dB up and down.");
 }
@@ -370,7 +370,8 @@ void CustomPedalPanel::refreshGraph()
     {
         auto& s = pedal.getSlot (slot);
         key << (int) s.getType() << ':' << s.frequency.get() << ':' << s.resonance.get() << ':'
-            << s.gainDb.get() << ':' << s.slope.getIndex() << ':' << (int) s.invert.isOn() << ';';
+            << s.gainDb.get() << ':' << s.slope.getIndex() << ':' << (int) s.invert.isOn() << ':'
+            << s.mix.get() << ':' << s.stages.getIndex() << ';';
     }
 
     if (key == lastResponseKey)

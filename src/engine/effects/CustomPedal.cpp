@@ -399,24 +399,86 @@ void CustomPedal::updateFilter (int index, float frequencyRatio) noexcept
 
 std::vector<float> CustomPedal::getResponseDb (const std::vector<float>& frequencies, bool& hasFilters)
 {
-    // An impulse through every filter and gain block in order, then measured.
+    // An impulse through the blocks, routed the same way process() routes
+    // the sound, then measured. Only the blocks that keep the same tone
+    // whatever you play are included: filters, gain, all-pass and the paths.
     constexpr int fftOrder = 14, size = 1 << fftOrder;
     constexpr double sampleRate = 48000.0;
-    std::vector<float> buffer ((size_t) size * 2, 0.0f);
+    std::vector<float> buffer ((size_t) size * 2, 0.0f), splitCopy ((size_t) size, 0.0f), pathACopy ((size_t) size, 0.0f);
     buffer[0] = 1.0f;
     hasFilters = false;
+    bool inSplit = false, inPathB = false;
 
     for (auto slot : getBlocksInOrder())
     {
         auto& s = *slots[(size_t) slot];
         const auto type = s.getType();
 
-        if (type == BlockType::gain)
+        if (type == BlockType::split)
+        {
+            if (! inSplit)
+            {
+                std::copy (buffer.begin(), buffer.begin() + size, splitCopy.begin());
+                inSplit = true;
+                inPathB = false;
+                hasFilters = true;
+            }
+        }
+        else if (type == BlockType::pathB)
+        {
+            if (inSplit && ! inPathB)
+            {
+                std::copy (buffer.begin(), buffer.begin() + size, pathACopy.begin());
+                std::copy (splitCopy.begin(), splitCopy.end(), buffer.begin());
+                inPathB = true;
+            }
+        }
+        else if (type == BlockType::mix)
+        {
+            if (inSplit)
+            {
+                const auto blend = s.mix.get() * 0.01f;
+                const auto* a = inPathB ? pathACopy.data() : buffer.data();
+                const auto* b = inPathB ? buffer.data() : splitCopy.data();
+
+                for (int i = 0; i < size; ++i)
+                    buffer[(size_t) i] = a[i] + blend * (b[i] - a[i]);
+            }
+
+            inSplit = inPathB = false;
+        }
+        else if (type == BlockType::gain)
         {
             const auto g = juce::Decibels::decibelsToGain (s.gainDb.get()) * (s.invert.isOn() ? -1.0f : 1.0f);
 
             for (int i = 0; i < size; ++i)
                 buffer[(size_t) i] *= g;
+
+            hasFilters = true;
+        }
+        else if (type == BlockType::allPass)
+        {
+            // The same first-order chain as runSlot(), with its knobs held still.
+            const auto numStages = 2 * (s.stages.getIndex() + 1);
+            const auto w = std::tan (juce::MathConstants<float>::pi * juce::jlimit (20.0f, (float) (sampleRate * 0.45), s.frequency.get())
+                                     / (float) sampleRate);
+            const auto a = (w - 1.0f) / (w + 1.0f);
+            const auto depth = s.mix.get() * 0.01f;
+            std::array<float, 8> state {};
+
+            for (int i = 0; i < size; ++i)
+            {
+                auto x = buffer[(size_t) i];
+
+                for (int n = 0; n < numStages; ++n)
+                {
+                    const auto y = a * x + state[(size_t) n];
+                    state[(size_t) n] = x - a * y;
+                    x = y;
+                }
+
+                buffer[(size_t) i] += 0.5f * depth * (x - buffer[(size_t) i]);
+            }
 
             hasFilters = true;
         }
@@ -434,6 +496,11 @@ std::vector<float> CustomPedal::getResponseDb (const std::vector<float>& frequen
             hasFilters = true;
         }
     }
+
+    // A Split with a lower path but no Mix joins the paths evenly at the end.
+    if (inSplit && inPathB)
+        for (int i = 0; i < size; ++i)
+            buffer[(size_t) i] = 0.5f * (buffer[(size_t) i] + pathACopy[(size_t) i]);
 
     juce::dsp::FFT fft (fftOrder);
     fft.performFrequencyOnlyForwardTransform (buffer.data());

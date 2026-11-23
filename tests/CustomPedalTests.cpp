@@ -732,3 +732,34 @@ TEST_CASE ("a split comes with its lower path and +, and goes with them")
     REQUIRE (pedal->addSplit() == -1);
     REQUIRE (pedal->getBlocksInOrder().size() == 8);
 }
+
+TEST_CASE ("the response graph follows split paths and the + blend")
+{
+    // Low-pass on the top path, clean bottom path, blended evenly: the highs
+    // come back at half level (-6 dB) instead of disappearing.
+    auto pedal = makeCustom();
+    pedal->addSplit();
+    auto order = pedal->getBlocksInOrder();   // split, path B, mix
+    const auto filter = pedal->addBlock (BlockType::lowPass);
+    pedal->getSlot (filter).frequency.set (300.0f);
+    pedal->moveBlock (3, 1);                  // onto the top path
+    order = pedal->getBlocksInOrder();
+    REQUIRE (pedal->getSlot (order[3]).getType() == BlockType::mix);
+    pedal->getSlot (order[3]).mix.set (50.0f);
+
+    bool hasFilters = false;
+    const std::vector<float> frequencies { 50.0f, 10000.0f };
+    auto db = pedal->getResponseDb (frequencies, hasFilters);
+    REQUIRE (hasFilters);
+    REQUIRE_THAT (db[0], Catch::Matchers::WithinAbs (0.0, 0.5));
+    REQUIRE_THAT (db[1], Catch::Matchers::WithinAbs (-6.0, 0.5));
+
+    // The graph agrees with the sound.
+    pedal->reset();
+    REQUIRE_THAT (responseDb (*pedal, 10000.0), Catch::Matchers::WithinAbs (db[1], 0.5));
+
+    // All of the top path: the highs are gone.
+    pedal->getSlot (order[3]).mix.set (0.0f);
+    db = pedal->getResponseDb (frequencies, hasFilters);
+    REQUIRE (db[1] < -30.0f);
+}
