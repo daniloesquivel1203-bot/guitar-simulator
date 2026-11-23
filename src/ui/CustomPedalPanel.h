@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../engine/CustomPedalLibrary.h"
 #include "../engine/effects/CustomPedal.h"
 #include "TonePanels.h"
 
@@ -15,7 +16,9 @@ class CustomPedalPanel final : public TonePanel,
                                private juce::Timer
 {
 public:
-    CustomPedalPanel (CustomPedal&, std::function<void()> onRemovePedal);
+    /** `onRenamed` runs after the pedal is saved under a new name. */
+    CustomPedalPanel (CustomPedal&, std::function<void()> onRemovePedal, CustomPedalLibrary&,
+                      std::function<void()> onRenamed);
     ~CustomPedalPanel() override;
 
     void resized() override;
@@ -56,6 +59,26 @@ private:
 
     class WidthKnob;
 
+    /** The combined frequency response of the filter and gain blocks. */
+    class ResponseGraph final : public juce::Component,
+                                public juce::SettableTooltipClient
+    {
+    public:
+        ResponseGraph();
+        void setCurve (std::vector<float> newDb, bool show);
+        void paint (juce::Graphics&) override;
+
+        static const std::vector<float>& getFrequencies();
+
+    private:
+        std::vector<float> db;
+        bool showing = false;
+    };
+
+    ResponseGraph graph;
+    juce::String lastResponseKey;
+    void refreshGraph();
+
     void refreshBlocks();
     void timerCallback() override;   // keeps the band's edges in step with the knobs
     void selectBlock (int slot);
@@ -66,6 +89,10 @@ private:
     CustomPedal& pedal;
     ParameterToggle power;
     juce::TextButton removePedalButton { "Remove" };
+    juce::TextButton saveButton { "Save as my pedal" };
+    CustomPedalLibrary& library;
+    std::function<void()> onRenamed;
+    void saveAsMyPedal();
     BlockRow blockRow { *this };
     ParameterKnob level;
     juce::Label hint, description, bandRange;

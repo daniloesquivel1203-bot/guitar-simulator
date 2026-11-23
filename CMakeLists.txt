@@ -76,6 +76,7 @@ target_sources(GuitarSimulator
         src/engine/AmpModel.cpp
         src/engine/AudioEngine.cpp
         src/engine/Cabinet.cpp
+        src/engine/CustomPedalLibrary.cpp
         src/engine/Pedalboard.cpp
         src/engine/Practice.cpp
         src/engine/Presets.cpp
@@ -145,6 +146,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/AmpCapture.cpp
             src/engine/AmpModel.cpp
             src/engine/Cabinet.cpp
+            src/engine/CustomPedalLibrary.cpp
             src/engine/Pedalboard.cpp
             src/engine/Practice.cpp
             src/engine/Presets.cpp

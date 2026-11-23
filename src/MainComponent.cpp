@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "ui/AudioSettingsPanel.h"
+#include "ui/Dialogs.h"
 #include "ui/PracticePanel.h"
 #include "ui/Theme.h"
 #include "ui/TunerPanel.h"
@@ -10,6 +11,7 @@ namespace
 constexpr int meterRefreshHz = 30;
 constexpr int stripWidth = 120;
 constexpr int headerHeight = 100;
+constexpr int myPedalsFirstId = 10000;   // add-menu ids of saved Custom pedals
 
 const auto background = Theme::background;
 const auto panel = Theme::panel;
@@ -240,7 +242,13 @@ void MainComponent::rebuildChain (int fallbackIndex)
         for (int i = 0; i < (int) pedals.size(); ++i)
         {
             auto pedal = pedals[(size_t) i];
-            tiles.push_back ({ ChainStrip::Kind::pedal, side, i, pedal->type.shortName, &pedal->getEffect().enabled });
+            // A Custom pedal the player named shows that name.
+            juce::String tileName (pedal->type.shortName);
+
+            if (auto* custom = dynamic_cast<CustomPedal*> (&pedal->getEffect()); custom != nullptr && custom->label.isNotEmpty())
+                tileName = custom->label;
+
+            tiles.push_back ({ ChainStrip::Kind::pedal, side, i, tileName, &pedal->getEffect().enabled });
             tilePedals.push_back (pedal);
 
             // The panel's Remove button works on whichever position the pedal has by then.
@@ -268,7 +276,12 @@ void MainComponent::rebuildChain (int fallbackIndex)
 
                 // The Custom pedal has its own panel, with its blocks and their controls.
                 if (auto* custom = dynamic_cast<CustomPedal*> (&pedal->getEffect()))
-                    return std::make_unique<CustomPedalPanel> (*custom, std::move (onRemove));
+                    return std::make_unique<CustomPedalPanel> (*custom, std::move (onRemove), customPedals, [this]
+                    {
+                        // The tile and the panel title show the new name.
+                        panelBlock = nullptr;
+                        rebuildChain (chainStrip.getSelected());
+                    });
 
                 return std::make_unique<EffectPanel> (pedal->getEffect(), std::move (onRemove),
                     SharedTempo { [this] { return engine.getPractice().getMetronome().getBpm(); },
@@ -373,11 +386,50 @@ void MainComponent::showAddMenu (Pedalboard::Side side, juce::Rectangle<int> scr
         menu.addSubMenu (category, submenu);
     }
 
+    // Custom pedals the player saved under their own names.
+    const auto myPedals = customPedals.getNames();
+    juce::PopupMenu mine;
+
+    for (int i = 0; i < myPedals.size(); ++i)
+        mine.addItem (myPedalsFirstId + i, myPedals[i]);
+
+    if (myPedals.isEmpty())
+        mine.addItem (-1, "None yet: use Save as my pedal on a Custom pedal", false);
+
+    menu.addSeparator();
+    menu.addSubMenu ("My pedals", mine);
+
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
-                        [safe = juce::Component::SafePointer<MainComponent> (this), side] (int result)
+                        [safe = juce::Component::SafePointer<MainComponent> (this), side, myPedals] (int result)
                         {
                             if (safe == nullptr || result <= 0)
                                 return;
+
+                            if (result >= myPedalsFirstId)
+                            {
+                                // A saved Custom pedal: add a Custom pedal and load its settings before it is heard.
+                                const auto name = myPedals[result - myPedalsFirstId];
+                                auto pedal = std::make_shared<Pedal> (*findPedalType ("custom"));
+                                auto& custom = dynamic_cast<CustomPedal&> (pedal->getEffect());
+
+                                if (! safe->customPedals.load (name, custom))
+                                    return dialogs::showMessage ("Could not add " + name, "That saved pedal could not be read.");
+
+                                custom.enabled.set (1.0f);
+                                auto& board = safe->engine.getChain().getBoard();
+                                auto list = board.getPedals (side);
+
+                                if ((int) list.size() >= Pedalboard::maxPedalsPerSide)
+                                    return;
+
+                                list.push_back (pedal);
+                                board.setPedals (side == Pedalboard::beforeAmp ? list : board.getPedals (Pedalboard::beforeAmp),
+                                                 side == Pedalboard::afterAmp ? list : board.getPedals (Pedalboard::afterAmp));
+                                safe->selectedBlock = &custom.enabled;
+                                safe->showingTuner = safe->showingPractice = false;
+                                safe->rebuildChain();
+                                return;
+                            }
 
                             if (auto pedal = safe->engine.getChain().getBoard().add (side, getPedalTypes()[(size_t) result - 1]))
                             {

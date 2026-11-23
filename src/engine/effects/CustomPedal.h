@@ -25,12 +25,25 @@ enum class BlockType
     clipper,
     lfo,
     envelope,
+    delay,
+    allPass,
+    reducer,
+    split,
+    pathB,
+    mix,
     numTypes
 };
 
 /** True for the LFO and Envelope blocks, which make no sound themselves but
     move another block's main knob. */
 inline bool isModulator (BlockType type) noexcept   { return type == BlockType::lfo || type == BlockType::envelope; }
+
+/** True for the Split, Path B and Mix markers, which route the signal into
+    two parallel paths and back together. */
+inline bool isRouting (BlockType type) noexcept
+{
+    return type == BlockType::split || type == BlockType::pathB || type == BlockType::mix;
+}
 
 /** The full name, as the add menu lists it. */
 const char* getTypeName (BlockType) noexcept;
@@ -89,7 +102,7 @@ class CustomPedal final : public MonoEffect
 public:
     using BlockType = custom_blocks::BlockType;
 
-    static constexpr int maxBlocks = 8;
+    static constexpr int maxBlocks = 10;
 
     CustomPedal();
 
@@ -102,10 +115,14 @@ public:
         // Modulator (LFO and Envelope) controls. Target is 0 for none, or a slot number from 1.
         Parameter rate, depth, target, wave, sensitivity, attack, release;
 
+        // Delay, all-pass, reducer and Mix controls.
+        Parameter time, feedback, mix, stages, bits, downsample;
+
         std::vector<Parameter*> getParameters()
         {
             return { &type, &frequency, &resonance, &gainDb, &driveDb, &shape, &slope, &invert,
-                     &rate, &depth, &target, &wave, &sensitivity, &attack, &release };
+                     &rate, &depth, &target, &wave, &sensitivity, &attack, &release,
+                     &time, &feedback, &mix, &stages, &bits, &downsample };
         }
 
         /** The slot this modulator moves, or -1. */
@@ -133,11 +150,18 @@ public:
 
     Slot& getSlot (int index) noexcept   { return *slots[(size_t) index]; }
 
+    /** A name the player gave this pedal, shown on its tile. Empty for an
+        unnamed one. Message thread only. */
+    juce::String label;
+
     /** The pedal's overall output level. */
     Parameter level { "custom.level", "Level", -24.0f, 12.0f, 0.0f, 0.1f, " dB" };
 
-    /** Which slot is first, second and so on, packed into one number. */
+    /** Which slot is first, second and so on, packed into one number.
+        `order` is the 8-block form from the first test builds, still read
+        when `order2` is zero; new edits write `order2`. */
     Parameter order { "custom.order", "Order", 0.0f, 40319.0f, 0.0f, 1.0f };
+    Parameter order2 { "custom.order2", "Order", 0.0f, 3628799.0f, 0.0f, 1.0f };
 
     //==============================================================================
     /** The slots in use, in the order the signal passes through them. */
@@ -167,9 +191,24 @@ public:
 
     using Order = std::array<int, maxBlocks>;
 
-    /** A permutation of 0..7 to and from one whole number. */
+    /** A permutation of all slots to and from one whole number. */
     static Order decodeOrder (int code) noexcept;
     static int encodeOrder (const Order&) noexcept;
+
+    /** Message thread. The level change in dB, at each frequency, of the
+        filter and gain blocks as their knobs are set now (ignoring routing,
+        modulators, delays and distortion). `hasFilters` is false when there
+        are none to draw. */
+    std::vector<float> getResponseDb (const std::vector<float>& frequencies, bool& hasFilters);
+
+    static void configureFilter (BlockType, float hz, float q, float gainDb, bool steep, double sampleRate,
+                                 std::array<custom_blocks::SvfStage, 2>& stages, int& numStages) noexcept;
+
+    /** The order the pedal's knobs describe now. */
+    Order getOrder() const noexcept;
+
+    /** The blocks a slot of this type can modulate the delay time of, etc. */
+    static constexpr float maxDelayMs = 2000.0f;
 
 private:
     struct Structure
@@ -191,6 +230,13 @@ private:
         float dcX1 = 0.0f, dcY1 = 0.0f;
         double lfoPhase = 0.0;
         float envelope = 0.0f;
+        juce::SmoothedValue<float> mix, feedback;
+        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> time { 300.0f };
+        std::vector<float> delayLine;   // sized in prepare()
+        int writeIndex = 0;
+        std::array<float, 8> allPassState {};
+        float heldSample = 0.0f;
+        int holdCounter = 0;
 
         void reset() noexcept;
     };
@@ -216,7 +262,7 @@ private:
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMix { 1.0f };
     juce::SmoothedValue<float> outputGain { 1.0f };
-    std::vector<float> dry;
+    std::vector<float> dry, splitInput, pathA;
     double rate = 48000.0;
     float dcCoefficient = 0.998f;
 };

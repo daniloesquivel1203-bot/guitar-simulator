@@ -1,5 +1,6 @@
 #include "CustomPedalPanel.h"
 
+#include "Dialogs.h"
 #include "Theme.h"
 
 namespace
@@ -100,10 +101,99 @@ private:
 };
 
 //==============================================================================
-CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void()> onRemovePedal)
-    : TonePanel ("CUSTOM PEDAL", &pedalToUse.enabled),
+CustomPedalPanel::ResponseGraph::ResponseGraph()
+{
+    setTooltip ("How the filter and gain blocks change the level across the frequency range, "
+                "from 20 Hz on the left to 20 kHz on the right. The middle line is no change; "
+                "the dotted lines are 12 dB up and down.");
+}
+
+const std::vector<float>& CustomPedalPanel::ResponseGraph::getFrequencies()
+{
+    static const auto frequencies = []
+    {
+        std::vector<float> f;
+
+        for (int i = 0; i < 160; ++i)
+            f.push_back (20.0f * std::pow (1000.0f, (float) i / 159.0f));
+
+        return f;
+    }();
+
+    return frequencies;
+}
+
+void CustomPedalPanel::ResponseGraph::setCurve (std::vector<float> newDb, bool show)
+{
+    db = std::move (newDb);
+    showing = show;
+    repaint();
+}
+
+void CustomPedalPanel::ResponseGraph::paint (juce::Graphics& g)
+{
+    const auto area = getLocalBounds().toFloat();
+    g.setColour (Theme::sunken);
+    g.fillRoundedRectangle (area, 4.0f);
+
+    constexpr float range = 24.0f;   // dB above and below the middle
+    const auto yFor = [&] (float value) { return area.getCentreY() - juce::jlimit (-range, range, value) / range * area.getHeight() * 0.5f; };
+    const auto xFor = [&] (float hz) { return area.getX() + std::log (hz / 20.0f) / std::log (1000.0f) * area.getWidth(); };
+
+    g.setColour (juce::Colours::white.withAlpha (0.08f));
+
+    for (auto hz : { 100.0f, 1000.0f, 10000.0f })
+        g.drawVerticalLine (juce::roundToInt (xFor (hz)), area.getY(), area.getBottom());
+
+    g.setColour (juce::Colours::white.withAlpha (0.18f));
+    g.drawHorizontalLine (juce::roundToInt (yFor (0.0f)), area.getX(), area.getRight());
+
+    const float dashes[] = { 2.0f, 3.0f };
+
+    for (auto level : { 12.0f, -12.0f })
+        g.drawDashedLine (juce::Line<float> (area.getX(), yFor (level), area.getRight(), yFor (level)), dashes, 2, 1.0f);
+
+    g.setColour (juce::Colours::white.withAlpha (0.35f));
+    g.setFont (juce::FontOptions (10.0f));
+    g.drawText ("100", juce::Rectangle<float> (xFor (100.0f) + 2.0f, area.getBottom() - 12.0f, 30.0f, 12.0f), juce::Justification::left);
+    g.drawText ("1k", juce::Rectangle<float> (xFor (1000.0f) + 2.0f, area.getBottom() - 12.0f, 30.0f, 12.0f), juce::Justification::left);
+    g.drawText ("10k", juce::Rectangle<float> (xFor (10000.0f) + 2.0f, area.getBottom() - 12.0f, 30.0f, 12.0f), juce::Justification::left);
+
+    if (! showing || db.empty())
+    {
+        g.drawText ("Add a filter to see its curve", area, juce::Justification::centred);
+        return;
+    }
+
+    const auto& frequencies = getFrequencies();
+    juce::Path curve;
+
+    for (size_t i = 0; i < db.size() && i < frequencies.size(); ++i)
+    {
+        const juce::Point<float> point (xFor (frequencies[i]), yFor (db[i]));
+
+        if (i == 0)
+            curve.startNewSubPath (point);
+        else
+            curve.lineTo (point);
+    }
+
+    g.saveState();
+    g.reduceClipRegion (getLocalBounds());
+    g.setColour (Theme::accent);
+    g.strokePath (curve, juce::PathStrokeType (1.75f));
+    g.restoreState();
+}
+
+//==============================================================================
+CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void()> onRemovePedal,
+                                    CustomPedalLibrary& libraryToUse, std::function<void()> onRenamedToUse)
+    : TonePanel (pedalToUse.label.isNotEmpty() ? pedalToUse.label.toUpperCase() + "  (CUSTOM PEDAL)" : juce::String ("CUSTOM PEDAL"),
+                 &pedalToUse.enabled),
       pedal (pedalToUse),
       power (pedal.enabled),
+      library (libraryToUse),
+      onRenamed (std::move (onRenamedToUse)),
       level (pedal.level)
 {
     addAndMakeVisible (power);
@@ -115,7 +205,12 @@ CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void(
         addAndMakeVisible (removePedalButton);
     }
 
+    saveButton.setTooltip ("Save this pedal under a name of your own. It then appears in the + menu under My pedals.");
+    saveButton.onClick = [this] { saveAsMyPedal(); };
+    addAndMakeVisible (saveButton);
+
     addAndMakeVisible (blockRow);
+    addAndMakeVisible (graph);
     addAndMakeVisible (level);
 
     hint.setText ("Click + to add your first block. The guitar passes through the blocks from left to right.",
@@ -158,6 +253,33 @@ CustomPedalPanel::CustomPedalPanel (CustomPedal& pedalToUse, std::function<void(
 }
 
 CustomPedalPanel::~CustomPedalPanel() = default;
+
+void CustomPedalPanel::saveAsMyPedal()
+{
+    dialogs::askForText ("Save as my pedal", "Name this pedal. It will appear in the + menu under My pedals.", pedal.label,
+                         [safe = juce::Component::SafePointer<CustomPedalPanel> (this)] (juce::String name)
+                         {
+                             if (safe == nullptr)
+                                 return;
+
+                             const auto doSave = [safe, name]
+                             {
+                                 if (safe == nullptr)
+                                     return;
+
+                                 if (const auto error = safe->library.save (name, safe->pedal); error.isNotEmpty())
+                                     return dialogs::showMessage ("Could not save the pedal", error);
+
+                                 if (safe->onRenamed != nullptr)
+                                     safe->onRenamed();
+                             };
+
+                             if (safe->library.getNames().contains (name.trim(), true) && name.trim() != safe->pedal.label)
+                                 dialogs::confirm ("Replace " + name.trim() + "?", "You already have a pedal with that name.", "Replace", doSave);
+                             else
+                                 doSave();
+                         });
+}
 
 void CustomPedalPanel::refreshBlocks()
 {
@@ -212,10 +334,7 @@ void CustomPedalPanel::selectBlock (int slot)
     blockRow.repaint();
     timerCallback();
 
-    if (widthKnobs.isEmpty())
-        stopTimer();
-    else
-        startTimerHz (15);
+    startTimerHz (15);
 
     resized();
 }
@@ -239,8 +358,31 @@ void CustomPedalPanel::refreshTargetChoices()
     targetBox.setSelectedId (target >= 0 ? target + 2 : 1, juce::dontSendNotification);
 }
 
+void CustomPedalPanel::refreshGraph()
+{
+    // Only recalculated when a knob that shapes the curve has moved.
+    juce::String key;
+
+    for (auto slot : blocks)
+    {
+        auto& s = pedal.getSlot (slot);
+        key << (int) s.getType() << ':' << s.frequency.get() << ':' << s.resonance.get() << ':'
+            << s.gainDb.get() << ':' << s.slope.getIndex() << ':' << (int) s.invert.isOn() << ';';
+    }
+
+    if (key == lastResponseKey)
+        return;
+
+    lastResponseKey = key;
+    bool hasFilters = false;
+    auto curve = pedal.getResponseDb (ResponseGraph::getFrequencies(), hasFilters);
+    graph.setCurve (std::move (curve), hasFilters);
+}
+
 void CustomPedalPanel::timerCallback()
 {
+    refreshGraph();
+
     if (selectedSlot < 0 || widthKnobs.isEmpty())
     {
         bandRange.setVisible (false);
@@ -273,6 +415,8 @@ void CustomPedalPanel::resized()
     power.setBounds (header.removeFromRight (60));
     header.removeFromRight (12);
     removePedalButton.setBounds (header.removeFromRight (80));
+    header.removeFromRight (8);
+    saveButton.setBounds (header.removeFromRight (140));
 
     auto area = getContentArea();
 
@@ -291,6 +435,9 @@ void CustomPedalPanel::resized()
     removeBlockButton.setBounds (side.removeFromBottom (28).removeFromLeft (120));
     side.removeFromBottom (6);
     bandRange.setBounds (side.removeFromBottom (22));
+    side.removeFromBottom (2);
+    graph.setBounds (side.removeFromBottom (juce::jlimit (60, 110, side.getHeight() - 56)));
+    side.removeFromBottom (6);
     description.setBounds (side);
     area.removeFromLeft (16);
 

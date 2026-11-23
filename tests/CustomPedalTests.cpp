@@ -1,4 +1,5 @@
 #include "TestSignals.h"
+#include "engine/CustomPedalLibrary.h"
 #include "engine/Pedalboard.h"
 #include "engine/Presets.h"
 #include "engine/SignalChain.h"
@@ -66,7 +67,7 @@ TEST_CASE ("the block order packs into one number and back")
 {
     std::set<int> seen;
 
-    for (int code = 0; code < 40320; code += 37)
+    for (int code = 0; code < 3628800; code += 3637)
     {
         const auto order = CustomPedal::decodeOrder (code);
         std::set<int> slots (order.begin(), order.end());
@@ -75,8 +76,8 @@ TEST_CASE ("the block order packs into one number and back")
         seen.insert (code);
     }
 
-    REQUIRE (CustomPedal::encodeOrder ({ 0, 1, 2, 3, 4, 5, 6, 7 }) == 0);
-    REQUIRE (CustomPedal::encodeOrder ({ 7, 6, 5, 4, 3, 2, 1, 0 }) == 40319);
+    REQUIRE (CustomPedal::encodeOrder ({ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }) == 0);
+    REQUIRE (CustomPedal::encodeOrder ({ 9, 8, 7, 6, 5, 4, 3, 2, 1, 0 }) == 3628799);
 }
 
 TEST_CASE ("low-pass and high-pass blocks keep their own side of the cutoff")
@@ -331,6 +332,7 @@ TEST_CASE ("a custom pedal's blocks are saved in presets and come back")
     custom.getSlot (filter).frequency.set (640.0f);
     custom.moveBlock (1, 0);
     custom.level.set (-3.0f);
+    custom.label = "Fuzz wah";
     chain.getBoard().setPedals (before, after);
 
     const auto saved = PresetManager::capture (chain, "Custom test");
@@ -351,6 +353,7 @@ TEST_CASE ("a custom pedal's blocks are saved in presets and come back")
     REQUIRE_THAT (loaded.getSlot (filter).frequency.get(), Catch::Matchers::WithinAbs (640.0, 0.01));
     REQUIRE_THAT (loaded.getSlot (clip).driveDb.get(), Catch::Matchers::WithinAbs (22.0, 0.01));
     REQUIRE_THAT (loaded.level.get(), Catch::Matchers::WithinAbs (-3.0, 0.01));
+    REQUIRE (loaded.label == "Fuzz wah");
 }
 
 TEST_CASE ("a full custom pedal uses little processor time", "[.][performance]")
@@ -532,4 +535,170 @@ TEST_CASE ("adding a modulator while playing never clicks")
         worst = juce::jmax (worst, std::abs (out[i] - out[i - 1]));
 
     REQUIRE (worst < maxStep * 2.0f);
+}
+
+//==============================================================================
+// Milestone 3: delay, all-pass, reducer, two paths, saved pedals, the graph.
+
+namespace
+{
+std::vector<float> impulse (int numSamples)
+{
+    std::vector<float> signal ((size_t) numSamples, 0.0f);
+    signal[0] = 1.0f;
+    return signal;
+}
+}
+
+TEST_CASE ("the delay block repeats the signal after its time, fading with feedback")
+{
+    auto pedal = makeCustom();
+    const auto slot = pedal->addBlock (BlockType::delay);
+    auto& s = pedal->getSlot (slot);
+    s.time.set (10.0f);
+    s.feedback.set (50.0f);
+    s.mix.set (100.0f);
+    pedal->reset();
+
+    const auto out = run (*pedal, impulse (4800));
+    REQUIRE_THAT (out[0], Catch::Matchers::WithinAbs (1.0, 0.01));
+    REQUIRE_THAT (out[480], Catch::Matchers::WithinAbs (1.0, 0.02));
+    REQUIRE_THAT (out[960], Catch::Matchers::WithinAbs (0.5, 0.02));
+    REQUIRE_THAT (out[1440], Catch::Matchers::WithinAbs (0.25, 0.02));
+    REQUIRE (std::abs (out[240]) < 0.001f);
+}
+
+TEST_CASE ("the all-pass block cuts a notch at its frequency")
+{
+    auto pedal = withBlock (BlockType::allPass);
+    auto& s = pedal->getSlot (pedal->getBlocksInOrder()[0]);
+    s.frequency.set (1000.0f);
+    s.stages.set (0.0f);   // two stages: half a turn of phase at the frequency
+    s.mix.set (100.0f);
+    pedal->reset();
+
+    REQUIRE (responseDb (*pedal, 1000.0) < -20.0);
+    REQUIRE (responseDb (*pedal, 100.0) > -1.0);
+
+    s.mix.set (0.0f);
+    REQUIRE (std::abs (responseDb (*pedal, 1000.0)) < 0.5);
+}
+
+TEST_CASE ("the reducer block steps the level and holds samples")
+{
+    auto pedal = withBlock (BlockType::reducer);
+    auto& s = pedal->getSlot (pedal->getBlocksInOrder()[0]);
+    s.bits.set (3.0f);
+    s.downsample.set (4.0f);
+    s.mix.set (100.0f);
+    pedal->reset();
+
+    const auto out = run (*pedal, test::sine (440.0, 0.8f, sampleRate, 4800));
+    std::set<float> levels (out.begin() + 2400, out.end());
+    REQUIRE (levels.size() <= 9);
+
+    for (size_t i = 2400; i + 4 <= out.size(); i += 4)
+        REQUIRE (std::abs (out[i] - out[i + 3]) < 1.0e-6f);
+}
+
+TEST_CASE ("split, path B and mix run two paths and blend them")
+{
+    SECTION ("without a Path B, path B is the clean signal")
+    {
+        auto pedal = makeCustom();
+        pedal->addBlock (BlockType::split);
+        const auto filter = pedal->addBlock (BlockType::lowPass);
+        const auto mix = pedal->addBlock (BlockType::mix);
+        pedal->getSlot (filter).frequency.set (200.0f);
+
+        pedal->getSlot (mix).mix.set (0.0f);
+        pedal->reset();
+        REQUIRE (responseDb (*pedal, 5000.0) < -24.0);
+
+        pedal->getSlot (mix).mix.set (100.0f);
+        pedal->reset();
+        REQUIRE (std::abs (responseDb (*pedal, 5000.0)) < 0.5);
+    }
+
+    SECTION ("an inverted path B blended evenly cancels path A")
+    {
+        auto pedal = makeCustom();
+        pedal->addBlock (BlockType::split);
+        pedal->addBlock (BlockType::pathB);
+        const auto gain = pedal->addBlock (BlockType::gain);
+        const auto mix = pedal->addBlock (BlockType::mix);
+        pedal->getSlot (gain).invert.set (1.0f);
+        pedal->getSlot (gain).gainDb.set (0.0f);
+        pedal->getSlot (mix).mix.set (50.0f);
+        pedal->reset();
+
+        REQUIRE (responseDb (*pedal, 440.0) < -60.0);
+    }
+}
+
+TEST_CASE ("a block order saved by the first 8-block builds still loads")
+{
+    auto pedal = makeCustom();
+    const auto first = pedal->addBlock (BlockType::lowPass);
+    const auto second = pedal->addBlock (BlockType::clipper);
+    REQUIRE (pedal->getBlocksInOrder() == std::vector<int> { first, second });
+
+    // The old form: only `order` set, reversing the first eight slots.
+    pedal->order2.set (0.0f);
+    pedal->order.set (40319.0f);
+    REQUIRE (pedal->getBlocksInOrder() == std::vector<int> { second, first });
+
+    // A new edit moves to the new form.
+    pedal->moveBlock (0, 1);
+    REQUIRE (pedal->order.getIndex() == 0);
+    REQUIRE (pedal->getBlocksInOrder() == std::vector<int> { first, second });
+}
+
+TEST_CASE ("custom pedals saved by name load back with their name")
+{
+    const auto folder = juce::File::createTempFile ("custom-pedals");
+    CustomPedalLibrary library (folder);
+
+    CustomPedal original;
+    const auto filter = original.addBlock (BlockType::bandPass);
+    original.addBlock (BlockType::delay);
+    original.getSlot (filter).frequency.set (777.0f);
+    original.level.set (-5.0f);
+
+    REQUIRE (library.save ("Wobbly echo", original).isEmpty());
+    REQUIRE (original.label == "Wobbly echo");
+    REQUIRE (library.getNames().contains ("Wobbly echo"));
+
+    CustomPedal copy;
+    REQUIRE (library.load ("Wobbly echo", copy));
+    REQUIRE (copy.label == "Wobbly echo");
+    REQUIRE (copy.getBlocksInOrder() == original.getBlocksInOrder());
+    REQUIRE_THAT (copy.getSlot (filter).frequency.get(), Catch::Matchers::WithinAbs (777.0, 0.01));
+    REQUIRE_THAT (copy.level.get(), Catch::Matchers::WithinAbs (-5.0, 0.01));
+
+    REQUIRE_FALSE (library.load ("Not there", copy));
+    REQUIRE (library.remove ("Wobbly echo").isEmpty());
+    REQUIRE_FALSE (library.getNames().contains ("Wobbly echo"));
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("the response graph follows the filter blocks")
+{
+    auto pedal = makeCustom();
+    bool hasFilters = true;
+    const std::vector<float> frequencies { 100.0f, 1000.0f, 10000.0f };
+
+    pedal->getResponseDb (frequencies, hasFilters);
+    REQUIRE_FALSE (hasFilters);
+
+    const auto filter = pedal->addBlock (BlockType::lowPass);
+    pedal->getSlot (filter).frequency.set (1000.0f);
+    const auto gain = pedal->addBlock (BlockType::gain);
+    pedal->getSlot (gain).gainDb.set (6.0f);
+    const auto db = pedal->getResponseDb (frequencies, hasFilters);
+
+    REQUIRE (hasFilters);
+    REQUIRE_THAT (db[0], Catch::Matchers::WithinAbs (6.0, 0.5));
+    REQUIRE_THAT (db[1], Catch::Matchers::WithinAbs (3.0, 0.5));   // -3 dB at the cutoff, +6 from the gain
+    REQUIRE (db[2] < -30.0f);
 }

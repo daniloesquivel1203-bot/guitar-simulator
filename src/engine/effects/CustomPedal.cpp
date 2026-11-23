@@ -1,5 +1,7 @@
 #include "CustomPedal.h"
 
+#include <juce_dsp/juce_dsp.h>
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -21,6 +23,12 @@ const char* getTypeName (BlockType type) noexcept
         case BlockType::clipper:    return "Clipper";
         case BlockType::lfo:        return "LFO (moves a knob)";
         case BlockType::envelope:   return "Envelope (follows your picking)";
+        case BlockType::delay:      return "Delay line";
+        case BlockType::allPass:    return "All-pass (phaser)";
+        case BlockType::reducer:    return "Bit / rate reducer";
+        case BlockType::split:      return "Split (start two paths)";
+        case BlockType::pathB:      return "Path B (start the second path)";
+        case BlockType::mix:        return "Mix (join the paths)";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -43,6 +51,12 @@ const char* getShortName (BlockType type) noexcept
         case BlockType::clipper:    return "Clip";
         case BlockType::lfo:        return "LFO";
         case BlockType::envelope:   return "Env";
+        case BlockType::delay:      return "Delay";
+        case BlockType::allPass:    return "All-pass";
+        case BlockType::reducer:    return "Crush";
+        case BlockType::split:      return "Split";
+        case BlockType::pathB:      return "Path B";
+        case BlockType::mix:        return "Mix";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -65,6 +79,12 @@ const char* getDescription (BlockType type) noexcept
         case BlockType::clipper:    return "Squashes peaks to add distortion. Put filters before it to shape what distorts, and after it to tame fizz.";
         case BlockType::lfo:        return "Makes no sound itself. It sweeps another block's main knob up and down at a steady rate: a filter for a wobble, a gain block for tremolo.";
         case BlockType::envelope:   return "Makes no sound itself. It moves another block's main knob as you play harder: a band-pass for auto-wah. Negative depth moves it the other way.";
+        case BlockType::delay:      return "Repeats the signal after a delay. Short times with an LFO on Time give chorus and vibrato; long times give echoes.";
+        case BlockType::allPass:    return "Shifts the timing of some frequencies and mixes that back in, cutting notches. Put an LFO on it for a phaser.";
+        case BlockType::reducer:    return "Lowers the bit depth and sample rate for a gritty, lo-fi digital sound.";
+        case BlockType::split:      return "Copies the signal into two paths. Blocks after it are path A, up to a Path B marker or the Mix. With no Path B, path B is the clean signal.";
+        case BlockType::pathB:      return "Starts the second path. Blocks after it, up to the Mix, get the signal from the Split.";
+        case BlockType::mix:        return "Joins the two paths back together. Blend sets how much of path B you hear.";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -99,6 +119,12 @@ void SvfStage::setCoefficients (BlockType type, float hz, float q, float gainDb,
         case BlockType::clipper:
         case BlockType::lfo:
         case BlockType::envelope:
+        case BlockType::delay:
+        case BlockType::allPass:
+        case BlockType::reducer:
+        case BlockType::split:
+        case BlockType::pathB:
+        case BlockType::mix:
         case BlockType::numTypes:   m0 = 1.0f; m1 = 0.0f;                     m2 = 0.0f;  break;
     }
 
@@ -122,7 +148,8 @@ const char* slotId (int slot, int field)
     static const auto table = []
     {
         static const char* const fields[] = { "type", "freq", "q", "gain", "drive", "shape", "slope", "invert",
-                                              "rate", "depth", "target", "wave", "sens", "attack", "release" };
+                                              "rate", "depth", "target", "wave", "sens", "attack", "release",
+                                              "time", "feedback", "mix", "stages", "bits", "downsample" };
         constexpr int numFields = (int) std::size (fields);
         std::array<std::array<std::string, numFields>, CustomPedal::maxBlocks> ids;
 
@@ -139,7 +166,7 @@ const char* slotId (int slot, int field)
 bool isFilter (BlockType type) noexcept
 {
     return type != BlockType::empty && type != BlockType::gain && type != BlockType::clipper
-        && ! custom_blocks::isModulator (type) && type != BlockType::numTypes;
+        && type < BlockType::lfo;
 }
 
 float clip (float x, int shape) noexcept
@@ -158,7 +185,7 @@ float clip (float x, int shape) noexcept
 CustomPedal::Slot::Slot (int index)
     : type (slotId (index, 0), "Type",
             { "Empty", "Low-pass", "High-pass", "Band-pass", "Notch", "Peak", "Low shelf", "High shelf", "Gain", "Clipper",
-              "LFO", "Envelope" }),
+              "LFO", "Envelope", "Delay", "All-pass", "Reducer", "Split", "Path B", "Mix" }),
       frequency (slotId (index, 1), "Frequency", 20.0f, 20000.0f, 1000.0f, 1.0f, " Hz", true),
       resonance (slotId (index, 2), "Resonance", 0.3f, 10.0f, 0.707f, 0.01f, "", true),
       gainDb (slotId (index, 3), "Gain", -24.0f, 24.0f, 0.0f, 0.1f, " dB"),
@@ -168,11 +195,17 @@ CustomPedal::Slot::Slot (int index)
       invert (slotId (index, 7), "Invert", 0.0f, 1.0f, 0.0f, 1.0f),
       rate (slotId (index, 8), "Rate", 0.05f, 20.0f, 2.0f, 0.01f, " Hz", true),
       depth (slotId (index, 9), "Depth", -100.0f, 100.0f, 50.0f, 1.0f, " %"),
-      target (slotId (index, 10), "Target", { "None", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Slot 6", "Slot 7", "Slot 8" }),
+      target (slotId (index, 10), "Target", { "None", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Slot 6", "Slot 7", "Slot 8", "Slot 9", "Slot 10" }),
       wave (slotId (index, 11), "Wave", { "Sine", "Triangle", "Square", "Ramp up", "Ramp down" }),
       sensitivity (slotId (index, 12), "Sensitivity", 0.0f, 40.0f, 12.0f, 0.1f, " dB"),
       attack (slotId (index, 13), "Attack", 1.0f, 200.0f, 10.0f, 0.1f, " ms", true),
-      release (slotId (index, 14), "Release", 10.0f, 1000.0f, 150.0f, 1.0f, " ms", true)
+      release (slotId (index, 14), "Release", 10.0f, 1000.0f, 150.0f, 1.0f, " ms", true),
+      time (slotId (index, 15), "Time", 1.0f, maxDelayMs, 300.0f, 0.1f, " ms", true),
+      feedback (slotId (index, 16), "Feedback", 0.0f, 95.0f, 30.0f, 1.0f, " %"),
+      mix (slotId (index, 17), "Mix", 0.0f, 100.0f, 50.0f, 1.0f, " %"),
+      stages (slotId (index, 18), "Stages", { "2", "4", "6", "8" }, 1),
+      bits (slotId (index, 19), "Bits", 2.0f, 16.0f, 8.0f, 1.0f),
+      downsample (slotId (index, 20), "Rate divide", 1.0f, 32.0f, 4.0f, 1.0f, "x")
 {
 }
 
@@ -188,7 +221,7 @@ CustomPedal::CustomPedal()
 
 std::vector<Parameter*> CustomPedal::getControls()
 {
-    std::vector<Parameter*> controls { &level, &order };
+    std::vector<Parameter*> controls { &level, &order, &order2 };
 
     for (auto& slot : slots)
         for (auto* parameter : slot->getParameters())
@@ -203,6 +236,8 @@ void CustomPedal::prepare (double sampleRate, int maxBlockSize)
     bufferSize = juce::jmax (1, maxBlockSize);
     dry.assign ((size_t) bufferSize, 0.0f);
     modulation.assign ((size_t) (bufferSize * maxBlocks), 0.0f);
+    splitInput.assign ((size_t) bufferSize, 0.0f);
+    pathA.assign ((size_t) bufferSize, 0.0f);
     dcCoefficient = (float) std::exp (-juce::MathConstants<double>::twoPi * 10.0 / sampleRate);
 
     for (auto& runner : runners)
@@ -212,6 +247,10 @@ void CustomPedal::prepare (double sampleRate, int maxBlockSize)
         runner.gainDb.reset (sampleRate, 0.03);
         runner.driveDb.reset (sampleRate, 0.03);
         runner.depth.reset (sampleRate, 0.03);
+        runner.mix.reset (sampleRate, 0.03);
+        runner.feedback.reset (sampleRate, 0.03);
+        runner.time.reset (sampleRate, 0.08);
+        runner.delayLine.assign ((size_t) (maxDelayMs * 0.001 * sampleRate) + 4, 0.0f);   // room for modulation
     }
 
     wetMix.reset (sampleRate, crossfadeSeconds);
@@ -227,6 +266,11 @@ void CustomPedal::Runner::reset() noexcept
     dcX1 = dcY1 = 0.0f;
     lfoPhase = 0.0;
     envelope = 0.0f;
+    std::fill (delayLine.begin(), delayLine.end(), 0.0f);
+    writeIndex = 0;
+    allPassState.fill (0.0f);
+    heldSample = 0.0f;
+    holdCounter = 0;
 }
 
 void CustomPedal::reset()
@@ -247,7 +291,7 @@ void CustomPedal::reset()
 CustomPedal::Structure CustomPedal::readStructure() const noexcept
 {
     Structure s;
-    s.order = decodeOrder (order.getIndex());
+    s.order = getOrder();
 
     for (int i = 0; i < maxBlocks; ++i)
     {
@@ -302,6 +346,9 @@ void CustomPedal::updateTargets (int index, bool snap) noexcept
         runner.gainDb.setCurrentAndTargetValue (slot.gainDb.get());
         runner.driveDb.setCurrentAndTargetValue (slot.driveDb.get());
         runner.depth.setCurrentAndTargetValue (slot.depth.get() * 0.01f);
+        runner.mix.setCurrentAndTargetValue (slot.mix.get() * 0.01f);
+        runner.feedback.setCurrentAndTargetValue (slot.feedback.get() * 0.01f);
+        runner.time.setCurrentAndTargetValue (slot.time.get());
     }
     else
     {
@@ -310,6 +357,30 @@ void CustomPedal::updateTargets (int index, bool snap) noexcept
         runner.gainDb.setTargetValue (slot.gainDb.get());
         runner.driveDb.setTargetValue (slot.driveDb.get());
         runner.depth.setTargetValue (slot.depth.get() * 0.01f);
+        runner.mix.setTargetValue (slot.mix.get() * 0.01f);
+        runner.feedback.setTargetValue (slot.feedback.get() * 0.01f);
+        runner.time.setTargetValue (slot.time.get());
+    }
+}
+
+void CustomPedal::configureFilter (BlockType type, float hz, float q, float gainDb, bool steep, double sampleRate,
+                                   std::array<custom_blocks::SvfStage, 2>& stages, int& numStages) noexcept
+{
+    numStages = steep && (type == BlockType::lowPass || type == BlockType::highPass) ? 2 : 1;
+
+    if (type == BlockType::lowShelf || type == BlockType::highShelf)
+    {
+        stages[0].setCoefficients (type, hz, juce::MathConstants<float>::sqrt2 * 0.5f, gainDb, sampleRate);
+    }
+    else if (numStages == 2)
+    {
+        // A 4th-order Butterworth split into two stages; the knob raises the second stage's peak.
+        stages[0].setCoefficients (type, hz, 0.5412f, 0.0f, sampleRate);
+        stages[1].setCoefficients (type, hz, q * 1.8478f, 0.0f, sampleRate);
+    }
+    else
+    {
+        stages[0].setCoefficients (type, hz, q, gainDb, sampleRate);
     }
 }
 
@@ -321,24 +392,62 @@ void CustomPedal::updateFilter (int index, float frequencyRatio) noexcept
     if (! isFilter (type))
         return;
 
-    const auto hz = runner.frequency.getCurrentValue() * frequencyRatio;
-    const auto q = runner.resonance.getCurrentValue();
-    const auto gainDb = runner.gainDb.getCurrentValue();
+    configureFilter (type, runner.frequency.getCurrentValue() * frequencyRatio, runner.resonance.getCurrentValue(),
+                     runner.gainDb.getCurrentValue(), applied.slopes[(size_t) index] == 1, rate,
+                     runner.stages, runner.numStages);
+}
 
-    if (type == BlockType::lowShelf || type == BlockType::highShelf)
+std::vector<float> CustomPedal::getResponseDb (const std::vector<float>& frequencies, bool& hasFilters)
+{
+    // An impulse through every filter and gain block in order, then measured.
+    constexpr int fftOrder = 14, size = 1 << fftOrder;
+    constexpr double sampleRate = 48000.0;
+    std::vector<float> buffer ((size_t) size * 2, 0.0f);
+    buffer[0] = 1.0f;
+    hasFilters = false;
+
+    for (auto slot : getBlocksInOrder())
     {
-        runner.stages[0].setCoefficients (type, hz, juce::MathConstants<float>::sqrt2 * 0.5f, gainDb, rate);
+        auto& s = *slots[(size_t) slot];
+        const auto type = s.getType();
+
+        if (type == BlockType::gain)
+        {
+            const auto g = juce::Decibels::decibelsToGain (s.gainDb.get()) * (s.invert.isOn() ? -1.0f : 1.0f);
+
+            for (int i = 0; i < size; ++i)
+                buffer[(size_t) i] *= g;
+
+            hasFilters = true;
+        }
+        else if (isFilter (type))
+        {
+            std::array<custom_blocks::SvfStage, 2> stages;
+            int numStages = 1;
+            configureFilter (type, s.frequency.get(), s.resonance.get(), s.gainDb.get(), s.slope.getIndex() == 1,
+                             sampleRate, stages, numStages);
+
+            for (int n = 0; n < numStages; ++n)
+                for (int i = 0; i < size; ++i)
+                    buffer[(size_t) i] = stages[(size_t) n].process (buffer[(size_t) i]);
+
+            hasFilters = true;
+        }
     }
-    else if (runner.numStages == 2)
+
+    juce::dsp::FFT fft (fftOrder);
+    fft.performFrequencyOnlyForwardTransform (buffer.data());
+
+    std::vector<float> result;
+    result.reserve (frequencies.size());
+
+    for (auto hz : frequencies)
     {
-        // A 4th-order Butterworth split into two stages; the knob raises the second stage's peak.
-        runner.stages[0].setCoefficients (type, hz, 0.5412f, 0.0f, rate);
-        runner.stages[1].setCoefficients (type, hz, q * 1.8478f, 0.0f, rate);
+        const auto bin = juce::jlimit (0, size / 2, juce::roundToInt (hz / sampleRate * size));
+        result.push_back (juce::Decibels::gainToDecibels (buffer[(size_t) bin], -60.0f));
     }
-    else
-    {
-        runner.stages[0].setCoefficients (type, hz, q, gainDb, rate);
-    }
+
+    return result;
 }
 
 void CustomPedal::runSlot (int index, float* samples, int numSamples, const float* mod) noexcept
@@ -390,6 +499,83 @@ void CustomPedal::runSlot (int index, float* samples, int numSamples, const floa
         for (int i = 0; i < numSamples; ++i)
             samples[i] *= sign * juce::Decibels::decibelsToGain (runner.gainDb.getNextValue())
                         * (mod != nullptr ? juce::jmax (0.0f, 1.0f + mod[i]) : 1.0f);
+
+        return;
+    }
+
+    if (type == BlockType::delay)
+    {
+        // A modulator moves the delay time up to an octave either way, for chorus and vibrato.
+        auto& line = runner.delayLine;
+        const auto size = (int) line.size();
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto ms = runner.time.getNextValue() * (mod != nullptr ? std::exp2 (mod[i]) : 1.0f);
+            const auto delaySamples = juce::jlimit (1.0f, (float) (size - 2), ms * 0.001f * (float) rate);
+
+            // Whole and fractional parts kept apart, so rounding can never read past the end.
+            const auto whole = (int) delaySamples;
+            const auto frac = 1.0f - (delaySamples - (float) whole);
+            auto i0 = runner.writeIndex - whole - 1;
+            if (i0 < 0)
+                i0 += size;
+            const auto delayed = line[(size_t) i0] + frac * (line[(size_t) ((i0 + 1) % size)] - line[(size_t) i0]);
+
+            line[(size_t) runner.writeIndex] = samples[i] + runner.feedback.getNextValue() * delayed;
+
+            if (++runner.writeIndex >= size)
+                runner.writeIndex = 0;
+
+            samples[i] += runner.mix.getNextValue() * delayed;
+        }
+
+        return;
+    }
+
+    if (type == BlockType::allPass)
+    {
+        // A chain of first-order all-passes, mixed with the input to cut notches.
+        const auto numStages = 2 * (slot.stages.getIndex() + 1);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            runner.frequency.getNextValue();
+            const auto hz = runner.frequency.getCurrentValue() * (mod != nullptr ? std::exp2 (3.0f * mod[i]) : 1.0f);
+            const auto w = std::tan (juce::MathConstants<float>::pi * juce::jlimit (20.0f, (float) (rate * 0.45), hz) / (float) rate);
+            const auto a = (w - 1.0f) / (w + 1.0f);
+
+            auto x = samples[i];
+
+            for (int s = 0; s < numStages; ++s)
+            {
+                const auto y = a * x + runner.allPassState[(size_t) s];
+                runner.allPassState[(size_t) s] = x - a * y;
+                x = y;
+            }
+
+            samples[i] += 0.5f * runner.mix.getNextValue() * (x - samples[i]);
+        }
+
+        return;
+    }
+
+    if (type == BlockType::reducer)
+    {
+        const auto levels = std::exp2 (slot.bits.get() - 1.0f);
+        const auto hold = juce::jmax (1, slot.downsample.getIndex());
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            if (runner.holdCounter <= 0)
+            {
+                runner.heldSample = std::round (samples[i] * levels) / levels;
+                runner.holdCounter = hold;
+            }
+
+            --runner.holdCounter;
+            samples[i] += runner.mix.getNextValue() * (runner.heldSample - samples[i]);
+        }
 
         return;
     }
@@ -520,9 +706,15 @@ const char* CustomPedal::getModulatedKnobName (BlockType type) noexcept
         case BlockType::highShelf:  return "frequency";
         case BlockType::gain:       return "level";
         case BlockType::clipper:    return "drive";
+        case BlockType::delay:      return "time";
+        case BlockType::allPass:    return "frequency";
         case BlockType::empty:
         case BlockType::lfo:
         case BlockType::envelope:
+        case BlockType::reducer:
+        case BlockType::split:
+        case BlockType::pathB:
+        case BlockType::mix:
         case BlockType::numTypes:   break;
     }
 
@@ -576,9 +768,72 @@ void CustomPedal::process (float* samples, int numSamples) noexcept
 
     runModulators (samples, numSamples);
 
+    // Split, Path B and Mix route the signal through two parallel paths.
+    // Without a Path B, path B is the signal as it was at the Split.
+    bool inSplit = false, inPathB = false;
+
     for (auto slot : activeSlots)
+    {
+        const auto type = applied.types[(size_t) slot];
+
+        if (type == BlockType::split)
+        {
+            if (! inSplit)
+            {
+                std::copy (samples, samples + numSamples, splitInput.data());
+                inSplit = true;
+                inPathB = false;
+            }
+
+            continue;
+        }
+
+        if (type == BlockType::pathB)
+        {
+            if (inSplit && ! inPathB)
+            {
+                std::copy (samples, samples + numSamples, pathA.data());
+                std::copy (splitInput.data(), splitInput.data() + numSamples, samples);
+                inPathB = true;
+            }
+
+            continue;
+        }
+
+        if (type == BlockType::mix)
+        {
+            auto& blend = runners[(size_t) slot].mix;
+            blend.setTargetValue (slots[(size_t) slot]->mix.get() * 0.01f);
+
+            if (inSplit)
+            {
+                // Blend 0 is path A, 1 is path B.
+                const auto* a = inPathB ? pathA.data() : samples;
+                const auto* b = inPathB ? samples : splitInput.data();
+
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const auto amount = blend.getNextValue();
+                    samples[i] = a[i] + amount * (b[i] - a[i]);
+                }
+            }
+            else
+            {
+                blend.skip (numSamples);
+            }
+
+            inSplit = inPathB = false;
+            continue;
+        }
+
         runSlot (slot, samples, numSamples,
                  isModulated[(size_t) slot] ? modulation.data() + slot * bufferSize : nullptr);
+    }
+
+    // A Split with a Path B but no Mix joins the paths evenly at the end.
+    if (inSplit && inPathB)
+        for (int i = 0; i < numSamples; ++i)
+            samples[i] = 0.5f * (samples[i] + pathA[(size_t) i]);
 
     if (blending)
         for (int i = 0; i < numSamples; ++i)
@@ -595,7 +850,7 @@ std::vector<int> CustomPedal::getBlocksInOrder() const
 {
     std::vector<int> result;
 
-    for (auto slot : decodeOrder (order.getIndex()))
+    for (auto slot : getOrder())
     {
         const auto type = slots[(size_t) slot]->getType();
 
@@ -608,7 +863,64 @@ std::vector<int> CustomPedal::getBlocksInOrder() const
 
 void CustomPedal::setOrder (const Order& newOrder)
 {
-    order.set ((float) encodeOrder (newOrder));
+    order2.set ((float) encodeOrder (newOrder));
+    order.set (0.0f);
+}
+
+namespace
+{
+/** Lehmer code for a permutation of n slots: digit i picks one of the slots not yet placed. */
+template <size_t n>
+std::array<int, n> decodeLehmer (int code) noexcept
+{
+    std::array<int, n> remaining {}, result {};
+
+    for (size_t i = 0; i < n; ++i)
+        remaining[i] = (int) i;
+
+    int factorial = 1;
+
+    for (int k = 2; k < (int) n; ++k)
+        factorial *= k;
+
+    code = juce::jlimit (0, factorial * (int) n - 1, code);
+    int count = (int) n;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        const auto digit = code / factorial;
+        code %= factorial;
+        result[i] = remaining[(size_t) digit];
+
+        for (int j = digit; j < count - 1; ++j)
+            remaining[(size_t) j] = remaining[(size_t) j + 1];
+
+        --count;
+
+        if (i + 1 < n)
+            factorial /= (int) (n - 1 - i);
+    }
+
+    return result;
+}
+}
+
+CustomPedal::Order CustomPedal::getOrder() const noexcept
+{
+    if (order2.getIndex() != 0 || order.getIndex() == 0)
+        return decodeOrder (order2.getIndex());
+
+    // Saved by a first test build with eight slots: the two new slots go last.
+    const auto old = decodeLehmer<8> (order.getIndex());
+    Order result {};
+
+    for (size_t i = 0; i < old.size(); ++i)
+        result[i] = old[i];
+
+    for (size_t i = old.size(); i < (size_t) maxBlocks; ++i)
+        result[i] = (int) i;
+
+    return result;
 }
 
 int CustomPedal::addBlock (BlockType type)
@@ -616,7 +928,7 @@ int CustomPedal::addBlock (BlockType type)
     if (type == BlockType::empty || type == BlockType::numTypes)
         return -1;
 
-    auto current = decodeOrder (order.getIndex());
+    auto current = getOrder();
     const auto inUse = getBlocksInOrder();
 
     // The first empty slot, in signal order.
@@ -652,6 +964,12 @@ int CustomPedal::addBlock (BlockType type)
         case BlockType::highShelf:  slot.frequency.set (3000.0f); slot.gainDb.set (4.0f); break;
         case BlockType::gain:       break;
         case BlockType::clipper:    slot.gainDb.set (-4.0f); break;
+        case BlockType::allPass:    slot.frequency.set (700.0f); slot.mix.set (100.0f); break;
+        case BlockType::reducer:    slot.mix.set (100.0f); break;
+        case BlockType::delay:
+        case BlockType::split:
+        case BlockType::pathB:
+        case BlockType::mix:        break;
         case BlockType::lfo:
         case BlockType::envelope:
             // Point it at the nearest block before it that it can move.
@@ -695,7 +1013,7 @@ void CustomPedal::removeBlock (int slotIndex)
 
     // Empty slots wait at the end of the order.
     const auto inUse = getBlocksInOrder();
-    const auto current = decodeOrder (order.getIndex());
+    const auto current = getOrder();
     Order next {};
     size_t n = 0;
 
@@ -721,7 +1039,7 @@ void CustomPedal::moveBlock (int from, int to)
     to = juce::jlimit (0, (int) inUse.size(), to);
     inUse.insert (inUse.begin() + to, moving);
 
-    const auto current = decodeOrder (order.getIndex());
+    const auto current = getOrder();
     Order next {};
     size_t n = 0;
 
@@ -751,6 +1069,12 @@ std::vector<CustomPedal::Control> CustomPedal::getControlsFor (Slot& slot, Block
         case BlockType::lfo:        return { { &slot.rate, "Rate" }, { &slot.depth, "Depth" }, { &slot.wave, "Wave" }, { &slot.target, "Moves" } };
         case BlockType::envelope:   return { { &slot.sensitivity, "Sensitivity" }, { &slot.attack, "Attack" }, { &slot.release, "Release" },
                                              { &slot.depth, "Depth" }, { &slot.target, "Moves" } };
+        case BlockType::delay:      return { { &slot.time, "Time" }, { &slot.feedback, "Feedback" }, { &slot.mix, "Echo level" } };
+        case BlockType::allPass:    return { { &slot.frequency, "Frequency" }, { &slot.mix, "Depth" }, { &slot.stages, "Stages" } };
+        case BlockType::reducer:    return { { &slot.bits, "Bits" }, { &slot.downsample, "Rate divide" }, { &slot.mix, "Mix" } };
+        case BlockType::mix:        return { { &slot.mix, "Blend" } };
+        case BlockType::split:
+        case BlockType::pathB:
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -761,35 +1085,16 @@ std::vector<CustomPedal::Control> CustomPedal::getControlsFor (Slot& slot, Block
 //==============================================================================
 CustomPedal::Order CustomPedal::decodeOrder (int code) noexcept
 {
-    // A Lehmer code: digit i picks one of the slots not yet placed.
-    code = juce::jlimit (0, 40319, code);
-    std::array<int, maxBlocks> remaining { 0, 1, 2, 3, 4, 5, 6, 7 };
-    int count = maxBlocks;
-    Order result {};
-    int factorial = 5040;   // 7!
-
-    for (int i = 0; i < maxBlocks; ++i)
-    {
-        const auto digit = code / factorial;
-        code %= factorial;
-        result[(size_t) i] = remaining[(size_t) digit];
-
-        for (int j = digit; j < count - 1; ++j)
-            remaining[(size_t) j] = remaining[(size_t) j + 1];
-
-        --count;
-
-        if (i < maxBlocks - 1)
-            factorial /= (maxBlocks - 1 - i);
-    }
-
-    return result;
+    return decodeLehmer<(size_t) maxBlocks> (code);
 }
 
 int CustomPedal::encodeOrder (const Order& orderToEncode) noexcept
 {
     int code = 0;
-    int factorial = 5040;
+    int factorial = 1;
+
+    for (int k = 2; k < maxBlocks; ++k)
+        factorial *= k;
 
     for (int i = 0; i < maxBlocks; ++i)
     {
