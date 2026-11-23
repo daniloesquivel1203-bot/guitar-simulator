@@ -10,6 +10,9 @@ using custom_blocks::BlockType;
 constexpr int tileWidth = 72;
 constexpr int addTileWidth = 30;
 constexpr int tileGap = 10;
+constexpr int nodeWidth = 46;      // the Split and Path B markers
+constexpr int laneHeight = 44;
+constexpr int laneGap = 10;
 }
 
 //==============================================================================
@@ -426,7 +429,7 @@ void CustomPedalPanel::resized()
                                                       juce::jmin (ParameterKnob::preferredHeight, levelArea.getHeight())));
     area.removeFromRight (16);
 
-    blockRow.setBounds (area.removeFromTop (48));
+    blockRow.setBounds (area.removeFromTop (blockRow.getPreferredHeight()));
     area.removeFromTop (8);
     hint.setBounds (area.withHeight (juce::jmin (60, area.getHeight())));
 
@@ -549,35 +552,212 @@ bool CustomPedalPanel::BlockRow::isAddTile (int tile) const
     return tile >= (int) owner.blocks.size();
 }
 
-juce::Rectangle<int> CustomPedalPanel::BlockRow::getTileBounds (int tile) const
+bool CustomPedalPanel::BlockRow::hasSplit() const
 {
-    const auto count = (int) owner.blocks.size();
-    const auto width = juce::jmin (tileWidth, (getWidth() - addTileWidth - tileGap * count) / juce::jmax (1, count));
-    const auto x = tile * (width + tileGap);
-    return { x, 0, isAddTile (tile) ? addTileWidth : width, getHeight() };
+    return std::any_of (owner.blocks.begin(), owner.blocks.end(),
+                        [this] (int slot) { return owner.pedal.getSlot (slot).getType() == BlockType::split; });
 }
 
-int CustomPedalPanel::BlockRow::findTileAt (juce::Point<int> position) const
+int CustomPedalPanel::BlockRow::getPreferredHeight() const
 {
-    for (int i = 0; i < numTiles(); ++i)
-        if (getTileBounds (i).contains (position))
+    return hasSplit() ? 2 * laneHeight + laneGap : 48;
+}
+
+CustomPedalPanel::BlockRow::Layout CustomPedalPanel::BlockRow::makeLayout() const
+{
+    // Shrink the blocks when the row would run past the edge.
+    const auto widest = makeLayout (tileWidth);
+    const auto right = widest.tiles.empty() ? 0 : widest.tiles.back().getRight();
+
+    if (right <= getWidth())
+        return widest;
+
+    const auto narrowest = makeLayout (0).tiles.back().getRight();
+    const auto perPixel = (float) (right - narrowest) / (float) tileWidth;
+    const auto width = perPixel > 0.0f ? (int) ((float) (getWidth() - narrowest) / perPixel) : tileWidth;
+    return makeLayout (juce::jlimit (28, tileWidth, width));
+}
+
+CustomPedalPanel::BlockRow::Layout CustomPedalPanel::BlockRow::makeLayout (int blockWidth) const
+{
+    // The main line runs along the top lane. Between a Split and its Mix, path A
+    // stays on top and path B runs below, joining again at the Mix's + circle.
+    // This follows how CustomPedal::process routes the sound.
+    Layout layout;
+    const bool twoLanes = hasSplit();
+    const auto topLane = juce::Rectangle<int> (0, 0, getWidth(), twoLanes ? laneHeight : getHeight());
+    const auto bottomLane = topLane.withY (laneHeight + laneGap);
+    const auto bottomY = (float) bottomLane.getCentreY();
+
+    int x = 0, xB = 0;
+    bool inSplit = false, inPathB = false;
+    std::optional<juce::Point<float>> lastTop, lastBottom;   // where the wire leaves the last tile in each lane
+
+    const auto connect = [&layout] (juce::Point<float> from, juce::Point<float> to)
+    {
+        if (to.x - from.x < 1.0f && std::abs (to.y - from.y) < 1.0f)
+            return;
+
+        layout.wires.startNewSubPath (from);
+
+        if (std::abs (to.y - from.y) > 0.5f)
+        {
+            // Across the lower lane, then up or down into the tile.
+            layout.wires.lineTo (to.x, from.y);
+            layout.wires.lineTo (to);
+            layout.arrows.push_back ({ from, { to.x, from.y } });
+        }
+        else
+        {
+            layout.wires.lineTo (to);
+            layout.arrows.push_back ({ from, to });
+        }
+    };
+
+    const auto place = [&] (juce::Rectangle<int> bounds, Look look, bool lower)
+    {
+        layout.tiles.push_back (bounds);
+        layout.looks.push_back (look);
+        const auto b = bounds.toFloat();
+        auto& last = lower ? lastBottom : lastTop;
+
+        if (last.has_value())
+            connect (*last, { b.getX(), b.getCentreY() });
+
+        last = juce::Point<float> (b.getRight(), b.getCentreY());
+    };
+
+    for (auto slot : owner.blocks)
+    {
+        const auto type = owner.pedal.getSlot (slot).getType();
+        const bool lower = inSplit && inPathB;
+        const auto lane = lower ? bottomLane : topLane;
+        auto& laneX = lower ? xB : x;
+
+        if (type == BlockType::split && ! inSplit)
+        {
+            place ({ x, lane.getY(), nodeWidth, lane.getHeight() }, Look::node, false);
+            x += nodeWidth + tileGap;
+
+            // Path B leaves the Split downwards.
+            const auto branch = juce::Point<float> ((float) x - (float) tileGap - nodeWidth * 0.5f, (float) lane.getBottom());
+            layout.wires.startNewSubPath (branch);
+            layout.wires.lineTo (branch.x, bottomY);
+            lastBottom = juce::Point<float> (branch.x, bottomY);
+            xB = x;
+            inSplit = true;
+            inPathB = false;
+            layout.labelB = juce::Rectangle<float> (branch.x + 3.0f, bottomY - 14.0f, 12.0f, 12.0f);
+        }
+        else if (type == BlockType::pathB && inSplit && ! inPathB)
+        {
+            inPathB = true;
+            layout.labelB = {};   // the Path B marker names the lane itself
+            place ({ xB, bottomLane.getY(), nodeWidth, bottomLane.getHeight() }, Look::node, true);
+            xB += nodeWidth + tileGap;
+        }
+        else if (type == BlockType::mix && inSplit)
+        {
+            const auto size = juce::jmin (laneHeight, 40);
+            x = juce::jmax (x, xB + 8);
+            const juce::Rectangle<int> circle (x, topLane.getCentreY() - size / 2, size, size);
+            place (circle, Look::mixer, false);
+
+            // Path B comes up into the bottom of the +.
+            if (lastBottom.has_value())
+            {
+                const auto into = juce::Point<float> ((float) circle.getCentreX(), (float) circle.getBottom());
+                layout.wires.startNewSubPath (*lastBottom);
+                layout.wires.lineTo (into.x, lastBottom->y);
+                layout.wires.lineTo (into);
+                layout.arrows.push_back ({ *lastBottom, { into.x, lastBottom->y } });
+            }
+
+            lastBottom.reset();
+            x += size + tileGap;
+            inSplit = inPathB = false;
+        }
+        else
+        {
+            // A block, or a marker that does nothing where it is.
+            const bool marker = custom_blocks::isRouting (type);
+            const auto width = marker ? nodeWidth : blockWidth;
+            place ({ laneX, lane.getY(), width, lane.getHeight() }, marker ? Look::node : Look::block, lower);
+            laneX += width + tileGap;
+        }
+    }
+
+    if (inSplit)
+        x = juce::jmax (x, xB);
+
+    // With no Path B, the lower path is the clean signal and is drawn as a bare wire.
+    if (inSplit && lastBottom.has_value())
+    {
+        layout.wires.startNewSubPath (*lastBottom);
+        layout.wires.lineTo ((float) x - tileGap * 0.5f, lastBottom->y);
+    }
+
+    if (numTiles() > (int) owner.blocks.size())
+    {
+        layout.tiles.push_back ({ x, topLane.getY(), addTileWidth, topLane.getHeight() });
+        layout.looks.push_back (Look::add);
+    }
+
+    return layout;
+}
+
+int CustomPedalPanel::BlockRow::findTileAt (const Layout& layout, juce::Point<int> position) const
+{
+    for (int i = 0; i < (int) layout.tiles.size(); ++i)
+        if (layout.tiles[(size_t) i].contains (position))
             return i;
 
     return -1;
 }
 
-int CustomPedalPanel::BlockRow::findDropPosition (int x) const
+juce::Rectangle<int> CustomPedalPanel::BlockRow::getDropMarker (const Layout& layout, int position) const
 {
-    int best = 0, bestDistance = std::numeric_limits<int>::max();
+    const auto count = (int) owner.blocks.size();
+
+    // Dropping just before a Path B marker or a Mix lands at the end of the
+    // path before it, so the marker goes there rather than in the other lane.
+    const auto endsAPath = [&] (int tile)
+    {
+        return layout.looks[(size_t) tile] == Look::mixer
+            || (owner.pedal.getSlot (owner.blocks[(size_t) tile]).getType() == BlockType::pathB
+                && layout.tiles[(size_t) tile].getY() > 0);
+    };
+
+    if (position > 0 && position < count && endsAPath (position))
+    {
+        const auto& last = layout.tiles[(size_t) (position - 1)];
+        return { last.getRight() + tileGap / 2 - 1, last.getY(), 3, last.getHeight() };
+    }
+
+    if (position < count)
+    {
+        const auto& tile = layout.tiles[(size_t) position];
+        return { tile.getX() - tileGap / 2 - 1, tile.getY(), 3, tile.getHeight() };
+    }
+
+    const auto& last = layout.tiles[(size_t) (count - 1)];
+    return { last.getRight() + tileGap / 2 - 1, last.getY(), 3, last.getHeight() };
+}
+
+int CustomPedalPanel::BlockRow::findDropPosition (const Layout& layout, juce::Point<int> point) const
+{
+    int best = 0;
+    auto bestDistance = std::numeric_limits<float>::max();
 
     for (int i = 0; i <= (int) owner.blocks.size(); ++i)
     {
-        const auto edge = i < (int) owner.blocks.size() ? getTileBounds (i).getX() - tileGap / 2
-                                                        : getTileBounds (i - 1).getRight() + tileGap / 2;
+        const auto marker = getDropMarker (layout, i).toFloat();
+        const auto distance = std::abs (marker.getCentreX() - (float) point.x)
+                              + 2.0f * juce::jmax (0.0f, std::abs (marker.getCentreY() - (float) point.y) - marker.getHeight() * 0.5f);
 
-        if (std::abs (edge - x) < bestDistance)
+        if (distance < bestDistance)
         {
-            bestDistance = std::abs (edge - x);
+            bestDistance = distance;
             best = i;
         }
     }
@@ -585,9 +765,9 @@ int CustomPedalPanel::BlockRow::findDropPosition (int x) const
     return best;
 }
 
-void CustomPedalPanel::BlockRow::paintTile (juce::Graphics& g, int tile, juce::Rectangle<float> area) const
+void CustomPedalPanel::BlockRow::paintTile (juce::Graphics& g, int tile, juce::Rectangle<float> area, Look look) const
 {
-    if (isAddTile (tile))
+    if (look == Look::add)
     {
         g.setColour (juce::Colours::white.withAlpha (0.18f));
         g.drawRoundedRectangle (area.reduced (0.75f), 6.0f, 1.0f);
@@ -603,8 +783,37 @@ void CustomPedalPanel::BlockRow::paintTile (juce::Graphics& g, int tile, juce::R
 
     const bool modulator = custom_blocks::isModulator (type);
 
-    g.setColour (selected ? Theme::raised : juce::Colour (0xff313a42));
+    if (look == Look::mixer)
+    {
+        // The Mix joins the two paths: a + in a circle.
+        g.setColour (selected ? Theme::raised : juce::Colour (0xff313a42));
+        g.fillEllipse (area);
+        g.setColour (selected ? Theme::accent : juce::Colours::white.withAlpha (0.45f));
+        g.drawEllipse (area.reduced (0.75f), selected ? 1.5f : 1.0f);
+        const auto c = area.getCentre();
+        const auto arm = area.getWidth() * 0.22f;
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.drawLine (c.x - arm, c.y, c.x + arm, c.y, 2.0f);
+        g.drawLine (c.x, c.y - arm, c.x, c.y + arm, 2.0f);
+        return;
+    }
+
+    g.setColour (selected ? Theme::raised : juce::Colour (look == Look::node ? 0xff2e363d : 0xff313a42));
     g.fillRoundedRectangle (area, 6.0f);
+
+    if (look == Look::node)
+    {
+        if (selected)
+        {
+            g.setColour (Theme::accent);
+            g.drawRoundedRectangle (area.reduced (0.75f), 6.0f, 1.5f);
+        }
+
+        g.setColour (juce::Colours::white.withAlpha (0.75f));
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawFittedText (custom_blocks::getShortName (type), area.toNearestInt().reduced (2, 0), juce::Justification::centred, 2, 0.8f);
+        return;
+    }
 
     // Modulators make no sound, so they are drawn with a dashed outline.
     if (modulator && ! selected)
@@ -646,9 +855,36 @@ void CustomPedalPanel::BlockRow::paintTile (juce::Graphics& g, int tile, juce::R
 
 void CustomPedalPanel::BlockRow::paint (juce::Graphics& g)
 {
-    for (int i = 0; i < numTiles(); ++i)
+    const auto layout = makeLayout();
+
+    // Wires first, so the tiles sit on top of them.
+    g.setColour (juce::Colours::white.withAlpha (0.25f));
+    g.strokePath (layout.wires, juce::PathStrokeType (1.5f));
+
+    for (const auto& line : layout.arrows)
     {
-        const auto bounds = getTileBounds (i).toFloat();
+        if (line.getLength() < 6.0f)
+            continue;
+
+        // Arrows show the direction the signal flows.
+        const auto x = (line.getStartX() + line.getEndX()) * 0.5f;
+        const auto y = line.getStartY();
+        juce::Path arrow;
+        arrow.addTriangle (x - 2.5f, y - 4.0f, x - 2.5f, y + 4.0f, x + 2.5f, y);
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.fillPath (arrow);
+    }
+
+    if (! layout.labelB.isEmpty())
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.drawText ("B", layout.labelB, juce::Justification::centredLeft);
+    }
+
+    for (int i = 0; i < (int) layout.tiles.size(); ++i)
+    {
+        const auto bounds = layout.tiles[(size_t) i].toFloat();
 
         if (drag.has_value() && drag->moved && drag->position == i)
         {
@@ -657,48 +893,34 @@ void CustomPedalPanel::BlockRow::paint (juce::Graphics& g)
         }
         else
         {
-            paintTile (g, i, bounds);
-        }
-
-        // Arrows show the direction the signal flows.
-        if (i + 1 < (int) owner.blocks.size())
-        {
-            const auto x = bounds.getRight() + (float) tileGap * 0.5f;
-            const auto y = bounds.getCentreY();
-            juce::Path arrow;
-            arrow.addTriangle (x - 2.5f, y - 4.0f, x - 2.5f, y + 4.0f, x + 2.5f, y);
-            g.setColour (juce::Colours::white.withAlpha (0.25f));
-            g.fillPath (arrow);
+            paintTile (g, i, bounds, layout.looks[(size_t) i]);
         }
     }
 
     if (drag.has_value() && drag->moved)
     {
-        auto floating = getTileBounds (drag->position).toFloat();
-        floating.setX ((float) (drag->mouseX - drag->grabOffset));
+        const auto floating = layout.tiles[(size_t) drag->position].withPosition (drag->mouse - drag->grabOffset).toFloat();
         g.setOpacity (0.6f);
-        paintTile (g, drag->position, floating);
+        paintTile (g, drag->position, floating, layout.looks[(size_t) drag->position]);
         g.setOpacity (1.0f);
 
-        const auto drop = findDropPosition (drag->mouseX);
-        const auto x = drop < (int) owner.blocks.size() ? getTileBounds (drop).getX() - tileGap / 2
-                                                        : getTileBounds (drop - 1).getRight() + tileGap / 2;
         g.setColour (Theme::accent);
-        g.fillRoundedRectangle ((float) x - 1.5f, 0.0f, 3.0f, (float) getHeight(), 1.5f);
+        g.fillRoundedRectangle (getDropMarker (layout, findDropPosition (layout, drag->mouse)).toFloat(), 1.5f);
     }
 }
 
 void CustomPedalPanel::BlockRow::mouseDown (const juce::MouseEvent& event)
 {
     drag.reset();
-    const auto tile = findTileAt (event.getPosition());
+    const auto layout = makeLayout();
+    const auto tile = findTileAt (layout, event.getPosition());
 
     if (tile < 0)
         return;
 
     if (isAddTile (tile))
     {
-        owner.showAddMenu (localAreaToGlobal (getTileBounds (tile)));
+        owner.showAddMenu (localAreaToGlobal (layout.tiles[(size_t) tile]));
         return;
     }
 
@@ -713,7 +935,7 @@ void CustomPedalPanel::BlockRow::mouseDown (const juce::MouseEvent& event)
     if (slot != owner.selectedSlot)
         owner.selectBlock (slot);
 
-    drag = Drag { tile, event.x - getTileBounds (tile).getX(), event.x, false };
+    drag = Drag { tile, event.getPosition() - layout.tiles[(size_t) tile].getPosition(), event.getPosition(), false };
     repaint();
 }
 
@@ -722,7 +944,7 @@ void CustomPedalPanel::BlockRow::mouseDrag (const juce::MouseEvent& event)
     if (! drag.has_value())
         return;
 
-    drag->mouseX = event.x;
+    drag->mouse = event.getPosition();
     drag->moved = drag->moved || event.getDistanceFromDragStart() > 5;
     repaint();
 }
@@ -739,7 +961,7 @@ void CustomPedalPanel::BlockRow::mouseUp (const juce::MouseEvent&)
     if (! finished.moved)
         return;
 
-    auto to = findDropPosition (finished.mouseX);
+    auto to = findDropPosition (makeLayout(), finished.mouse);
 
     // The position is counted after the block has left its old place.
     if (to > finished.position)

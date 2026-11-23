@@ -37,21 +37,39 @@ private:
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseUp (const juce::MouseEvent&) override;
 
+        /** Taller when there is a Split, so the two paths sit one above the other. */
+        int getPreferredHeight() const;
+
     private:
         struct Drag
         {
             int position;
-            int grabOffset;
-            int mouseX;
+            juce::Point<int> grabOffset;
+            juce::Point<int> mouse;
             bool moved;
         };
 
+        enum class Look { block, node, mixer, add };
+
+        /** Where every tile goes, and the wires between them. */
+        struct Layout
+        {
+            std::vector<juce::Rectangle<int>> tiles;   // the blocks in order, then the + tile
+            std::vector<Look> looks;
+            juce::Path wires;
+            std::vector<juce::Line<float>> arrows;     // the signal flows along each, left to right
+            juce::Rectangle<float> labelB;             // the B beside a bare path B wire, or empty
+        };
+
+        Layout makeLayout() const;
+        Layout makeLayout (int blockWidth) const;
         int numTiles() const;                           // the blocks, plus a + tile while there is room
         bool isAddTile (int tile) const;
-        juce::Rectangle<int> getTileBounds (int tile) const;
-        int findTileAt (juce::Point<int>) const;
-        int findDropPosition (int x) const;
-        void paintTile (juce::Graphics&, int tile, juce::Rectangle<float>) const;
+        int findTileAt (const Layout&, juce::Point<int>) const;
+        int findDropPosition (const Layout&, juce::Point<int>) const;
+        juce::Rectangle<int> getDropMarker (const Layout&, int position) const;
+        void paintTile (juce::Graphics&, int tile, juce::Rectangle<float>, Look) const;
+        bool hasSplit() const;
 
         CustomPedalPanel& owner;
         std::optional<Drag> drag;
