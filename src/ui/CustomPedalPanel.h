@@ -49,7 +49,7 @@ private:
             bool moved;
         };
 
-        enum class Look { block, node, mixer, add };
+        enum class Look { block, node, mixer, add, hidden };
 
         /** Where every tile goes, and the wires between them. */
         struct Layout
@@ -58,7 +58,6 @@ private:
             std::vector<Look> looks;
             juce::Path wires;
             std::vector<juce::Line<float>> arrows;     // the signal flows along each, left to right
-            juce::Rectangle<float> labelB;             // the B beside a bare path B wire, or empty
         };
 
         Layout makeLayout() const;
