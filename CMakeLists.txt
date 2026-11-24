@@ -82,6 +82,7 @@ target_sources(GuitarSimulator
         src/engine/Presets.cpp
         src/engine/SignalChain.cpp
         src/engine/Tuner.cpp
+        src/engine/effects/BlockDsp.cpp
         src/engine/effects/CustomPedal.cpp
         src/engine/effects/Drives.cpp
         src/engine/effects/Dynamics.cpp
@@ -152,6 +153,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/Presets.cpp
             src/engine/SignalChain.cpp
             src/engine/Tuner.cpp
+            src/engine/effects/BlockDsp.cpp
             src/engine/effects/CustomPedal.cpp
             src/engine/effects/Drives.cpp
             src/engine/effects/Dynamics.cpp
