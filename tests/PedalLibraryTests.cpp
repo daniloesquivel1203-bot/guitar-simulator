@@ -143,7 +143,7 @@ TEST_CASE ("the library has many pedals, each with a unique key, name and parame
 
         // The panel has room for this many controls. The Custom pedal has its
         // own panel, which shows only the selected block's controls.
-        if (juce::String (type.key) != "custom")
+        if (juce::String (type.key) != "custom" && juce::String (type.key) != "patch")
             REQUIRE (pedal.getEffect().getControls().size() <= 8);
     }
 

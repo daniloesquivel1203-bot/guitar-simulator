@@ -1,6 +1,7 @@
 #pragma once
 
 #include "effects/CustomPedal.h"
+#include "effects/PatchPedal.h"
 #include "effects/Drives.h"
 #include "effects/Dynamics.h"
 #include "effects/Echoes.h"

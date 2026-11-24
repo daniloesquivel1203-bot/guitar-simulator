@@ -84,6 +84,7 @@ target_sources(GuitarSimulator
         src/engine/Tuner.cpp
         src/engine/effects/BlockDsp.cpp
         src/engine/effects/CustomPedal.cpp
+        src/engine/effects/PatchPedal.cpp
         src/engine/effects/Drives.cpp
         src/engine/effects/Dynamics.cpp
         src/engine/effects/Echoes.cpp
@@ -155,6 +156,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/Tuner.cpp
             src/engine/effects/BlockDsp.cpp
             src/engine/effects/CustomPedal.cpp
+            src/engine/effects/PatchPedal.cpp
             src/engine/effects/Drives.cpp
             src/engine/effects/Dynamics.cpp
             src/engine/effects/Echoes.cpp
@@ -170,6 +172,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/ComfortTests.cpp
             tests/CabinetTests.cpp
             tests/CustomPedalTests.cpp
+            tests/PatchPedalTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
             tests/PedalLibraryTests.cpp

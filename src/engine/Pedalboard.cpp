@@ -70,6 +70,7 @@ const std::vector<PedalType>& getPedalTypes()
 
         // Built by the player from filter, gain and clipper blocks
         { "custom",      "Custom",   "Custom",     maker<CustomPedal>() },
+        { "patch",       "Patch",    "Custom",     maker<PatchPedal>() },
     };
 
     return types;
