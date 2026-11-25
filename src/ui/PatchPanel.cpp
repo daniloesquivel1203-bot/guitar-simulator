@@ -16,6 +16,7 @@ constexpr float grabRadius = 10.0f;
 const juce::Colour wireColour = juce::Colours::white.withAlpha (0.45f);
 const juce::Colour loopColour = Theme::accent.withAlpha (0.8f);
 const juce::Colour modColour = Theme::warning.withAlpha (0.8f);
+const juce::Colour cutColour = juce::Colour (0xffe0605a);
 
 bool makesNoSound (BlockType type)   { return custom_blocks::isModulator (type); }
 }
@@ -26,7 +27,7 @@ PatchPanel::Canvas::Canvas (PatchPanel& ownerToUse)
 {
     setWantsKeyboardFocus (true);
     setTooltip ("Drag a block to move it. Drag from a block's right-hand dot to another block's left-hand dot to wire them. "
-                "Drag a wire's end off a block to unplug it. Right-click a block to remove it, or empty space to add one.");
+                "Click a wire to cut it. Right-click a block to remove it, or empty space to add one.");
 }
 
 juce::Rectangle<float> PatchPanel::Canvas::getInputPill() const
@@ -39,17 +40,62 @@ juce::Rectangle<float> PatchPanel::Canvas::getOutputPill() const
     return { (float) getWidth() - 6.0f - pillWidth, (float) getHeight() * 0.5f - pillHeight * 0.5f, pillWidth, pillHeight };
 }
 
-juce::Rectangle<float> PatchPanel::Canvas::getNodeBounds (int index) const
+juce::Rectangle<float> PatchPanel::Canvas::getNodeArea() const
 {
-    auto& node = owner.pedal.getNode (index);
-
-    // Blocks sit between the In and Out pills, kept inside the canvas.
+    // Block centres sit between the In and Out pills, kept inside the canvas.
     const auto left = 6.0f + pillWidth + 14.0f + nodeWidth * 0.5f;
     const auto right = (float) getWidth() - 6.0f - pillWidth - 14.0f - nodeWidth * 0.5f;
     const auto top = 6.0f + nodeHeight * 0.5f;
     const auto bottom = (float) getHeight() - 6.0f - nodeHeight * 0.5f;
-    const juce::Point<float> centre (left + node.x.get() * juce::jmax (0.0f, right - left),
-                                     top + node.y.get() * juce::jmax (0.0f, bottom - top));
+    return { left, top, juce::jmax (1.0f, right - left), juce::jmax (1.0f, bottom - top) };
+}
+
+juce::Point<float> PatchPanel::Canvas::toNodePosition (juce::Point<float> p) const
+{
+    const auto area = getNodeArea();
+    return { juce::jlimit (0.0f, 1.0f, (p.x - area.getX()) / area.getWidth()),
+             juce::jlimit (0.0f, 1.0f, (p.y - area.getY()) / area.getHeight()) };
+}
+
+juce::Point<float> PatchPanel::Canvas::findFreeSpot() const
+{
+    // The grid point furthest from every block, preferring the middle on a tie.
+    const auto area = getNodeArea();
+    juce::Point<float> best (0.5f, 0.5f);
+    float bestScore = -1.0f;
+
+    for (int row = 0; row < 3; ++row)
+    {
+        for (int column = 0; column < 7; ++column)
+        {
+            const juce::Point<float> spot (0.2f + 0.1f * (float) ((column + 3) % 7), 0.5f + (row == 0 ? 0.0f : (row == 1 ? -0.4f : 0.4f)));
+            const juce::Point<float> centre (area.getX() + spot.x * area.getWidth(), area.getY() + spot.y * area.getHeight());
+            float nearest = 1.0e6f;
+
+            for (auto n : owner.nodes)
+            {
+                const auto other = getNodeBounds (n).getCentre();
+                // Blocks are wide, so distance across counts for less.
+                nearest = juce::jmin (nearest, juce::Point<float> ((other.x - centre.x) * 0.5f, other.y - centre.y).getDistanceFromOrigin());
+            }
+
+            if (nearest > bestScore + 1.0f)
+            {
+                bestScore = nearest;
+                best = spot;
+            }
+        }
+    }
+
+    return best;
+}
+
+juce::Rectangle<float> PatchPanel::Canvas::getNodeBounds (int index) const
+{
+    auto& node = owner.pedal.getNode (index);
+    const auto area = getNodeArea();
+    const juce::Point<float> centre (area.getX() + node.x.get() * area.getWidth(),
+                                     area.getY() + node.y.get() * area.getHeight());
 
     if (node.getType() == BlockType::mix)
         return juce::Rectangle<float> (nodeHeight, nodeHeight).withCentre (centre);
@@ -132,16 +178,94 @@ PatchPanel::Canvas::Hit PatchPanel::Canvas::findHit (juce::Point<float> p) const
         if (getNodeBounds (*it).expanded (2.0f).contains (p))
             return { Hit::body, *it, 0 };
 
-    return {};
+    // Last, the wires, so clicking near one picks it.
+    Hit closest;
+    float closestDistance = 6.0f;
+
+    for (const auto& wire : getWires())
+    {
+        juce::Point<float> onWire;
+        makeWire (wire.from, wire.to).getNearestPoint (p, onWire);
+
+        if (const auto distance = onWire.getDistanceFrom (p); distance < closestDistance)
+        {
+            closestDistance = distance;
+            closest = wire.id;
+        }
+    }
+
+    return closest;
 }
 
-void PatchPanel::Canvas::drawWire (juce::Graphics& g, juce::Point<float> from, juce::Point<float> to, juce::Colour colour, bool dashed)
+std::vector<PatchPanel::Canvas::Wire> PatchPanel::Canvas::getWires() const
+{
+    std::vector<Wire> wires;
+    auto& pedal = owner.pedal;
+    const auto inUse = [this] (int n) { return std::find (owner.nodes.begin(), owner.nodes.end(), n) != owner.nodes.end(); };
+
+    // Sound wires. A loop (into a block that runs first) is drawn dashed in blue.
+    for (auto n : owner.nodes)
+    {
+        for (int input = 0; input < numInputs (n); ++input)
+        {
+            const auto source = pedal.getNode (n).getSource (input);
+
+            if (source == PatchPedal::noSource || (source >= 0 && (! inUse (source) || ! hasOutput (source))))
+                continue;
+
+            const bool loop = pedal.isLoopWire (n, input);
+            wires.push_back ({ { Hit::wire, n, input }, getOutputPort (source), getInputPort (n, input),
+                               loop ? loopColour : wireColour, loop });
+        }
+    }
+
+    if (const auto out = pedal.getOutputSource(); out != PatchPedal::noSource && (out < 0 || inUse (out)))
+        wires.push_back ({ { Hit::wire, -1, 0 }, getOutputPort (out), getOutPillPort(), wireColour, false });
+
+    // Modulator links: dashed orange, into the top of the block they move.
+    for (auto n : owner.nodes)
+    {
+        const auto target = pedal.getNode (n).block.getTargetSlot();
+
+        if (makesNoSound (pedal.getNode (n).getType()) && target >= 0 && inUse (target))
+        {
+            const auto to = getNodeBounds (target);
+            wires.push_back ({ { Hit::wire, n, -1 }, getModPort (n), { to.getCentreX(), to.getY() }, modColour, true });
+        }
+    }
+
+    return wires;
+}
+
+void PatchPanel::Canvas::cutWire (const Hit& wire)
+{
+    auto& pedal = owner.pedal;
+
+    if (wire.node < 0)
+        pedal.connectOutput (PatchPedal::noSource);
+    else if (wire.input < 0)
+        pedal.setTarget (wire.node, -1);
+    else
+        pedal.connect (PatchPedal::noSource, wire.node, wire.input);
+
+    owner.refreshTargetChoices();
+    hover = {};
+    repaint();
+}
+
+juce::Path PatchPanel::Canvas::makeWire (juce::Point<float> from, juce::Point<float> to)
 {
     // A soft S-curve, which loops round nicely when it goes back to the left.
     const auto pull = juce::jmax (30.0f, std::abs (to.x - from.x) * 0.5f);
     juce::Path wire;
     wire.startNewSubPath (from);
     wire.cubicTo (from.translated (pull, 0.0f), to.translated (-pull, 0.0f), to);
+    return wire;
+}
+
+void PatchPanel::Canvas::drawWire (juce::Graphics& g, juce::Point<float> from, juce::Point<float> to, juce::Colour colour, bool dashed)
+{
+    const auto wire = makeWire (from, to);
 
     g.setColour (colour);
 
@@ -243,44 +367,16 @@ void PatchPanel::Canvas::paint (juce::Graphics& g)
         g.drawText (text, pill, juce::Justification::centred);
     }
 
-    auto& pedal = owner.pedal;
-
-    // Sound wires. A loop (into a block that runs first) is drawn dashed in blue.
-    for (auto n : owner.nodes)
+    // The wire under the mouse is drawn red and thicker: a click cuts it.
+    for (const auto& wire : getWires())
     {
-        if (makesNoSound (pedal.getNode (n).getType()) && pedal.getNode (n).getType() == BlockType::lfo)
-            continue;
-
-        for (int input = 0; input < numInputs (n); ++input)
+        if (hover.kind == Hit::wire && hover == wire.id && ! wiring.has_value())
         {
-            const auto source = pedal.getNode (n).getSource (input);
-
-            if (source == PatchPedal::noSource || (source >= 0 && std::find (owner.nodes.begin(), owner.nodes.end(), source) == owner.nodes.end()))
-                continue;
-
-            if (source >= 0 && ! hasOutput (source))
-                continue;
-
-            const bool loop = pedal.isLoopWire (n, input);
-            drawWire (g, getOutputPort (source), getInputPort (n, input), loop ? loopColour : wireColour, loop);
+            g.setColour (cutColour);
+            g.strokePath (makeWire (wire.from, wire.to), juce::PathStrokeType (3.0f));
         }
-    }
-
-    if (const auto out = pedal.getOutputSource(); out != PatchPedal::noSource
-        && (out < 0 || std::find (owner.nodes.begin(), owner.nodes.end(), out) != owner.nodes.end()))
-        drawWire (g, getOutputPort (out), getOutPillPort(), wireColour, false);
-
-    // Modulator links: dashed orange, into the top of the block they move.
-    for (auto n : owner.nodes)
-    {
-        const auto target = pedal.getNode (n).block.getTargetSlot();
-
-        if (makesNoSound (pedal.getNode (n).getType()) && target >= 0
-            && std::find (owner.nodes.begin(), owner.nodes.end(), target) != owner.nodes.end())
-        {
-            const auto to = getNodeBounds (target);
-            drawWire (g, getModPort (n), { to.getCentreX(), to.getY() }, modColour, true);
-        }
+        else
+            drawWire (g, wire.from, wire.to, wire.colour, wire.dashed);
     }
 
     for (auto n : owner.nodes)
@@ -316,9 +412,10 @@ void PatchPanel::Canvas::mouseMove (const juce::MouseEvent& event)
 {
     const auto now = findHit (event.position);
 
-    if (now.kind != hover.kind || now.node != hover.node || now.input != hover.input)
+    if (! (now == hover))
     {
         hover = now;
+        setMouseCursor (now.kind == Hit::wire ? juce::MouseCursor::CrosshairCursor : juce::MouseCursor::NormalCursor);
         repaint();
     }
 }
@@ -337,12 +434,19 @@ void PatchPanel::Canvas::mouseDown (const juce::MouseEvent& event)
     const auto hit = findHit (event.position);
     auto& pedal = owner.pedal;
 
+    if (hit.kind == Hit::wire)
+    {
+        cutWire (hit);
+        return;
+    }
+
     if (event.mods.isPopupMenu())
     {
         if (hit.node >= 0)
             owner.showNodeMenu (hit.node);
         else if (hit.kind == Hit::nothing)
             owner.showAddMenu (event.position);
+
 
         return;
     }
@@ -401,6 +505,7 @@ void PatchPanel::Canvas::mouseDown (const juce::MouseEvent& event)
             break;
         }
 
+        case Hit::wire:
         case Hit::nothing:
             break;
     }
@@ -425,15 +530,10 @@ void PatchPanel::Canvas::mouseDrag (const juce::MouseEvent& event)
         if (! moving->moved)
             return;
 
-        // The inverse of getNodeBounds().
-        const auto centre = event.position - moving->grabOffset;
-        const auto left = 6.0f + pillWidth + 14.0f + nodeWidth * 0.5f;
-        const auto right = (float) getWidth() - 6.0f - pillWidth - 14.0f - nodeWidth * 0.5f;
-        const auto top = 6.0f + nodeHeight * 0.5f;
-        const auto bottom = (float) getHeight() - 6.0f - nodeHeight * 0.5f;
+        const auto position = toNodePosition (event.position - moving->grabOffset);
         auto& node = owner.pedal.getNode (moving->node);
-        node.x.set (juce::jlimit (0.0f, 1.0f, (centre.x - left) / juce::jmax (1.0f, right - left)));
-        node.y.set (juce::jlimit (0.0f, 1.0f, (centre.y - top) / juce::jmax (1.0f, bottom - top)));
+        node.x.set (position.x);
+        node.y.set (position.y);
         repaint();
     }
 }
@@ -491,6 +591,7 @@ void PatchPanel::Canvas::finishWire (const Wiring& w, const Hit& target)
             break;
 
         case Hit::inputPill:
+        case Hit::wire:
         case Hit::nothing:
             break;
     }
@@ -516,20 +617,15 @@ PatchPanel::PatchPanel (PatchPedal& pedalToUse, std::function<void()> onRemovePe
 {
     addAndMakeVisible (power);
 
-    if (onRemovePedal != nullptr)
-    {
-        removePedalButton.setTooltip ("Take this pedal off the board.");
-        removePedalButton.onClick = std::move (onRemovePedal);
-        addAndMakeVisible (removePedalButton);
-    }
+    removePedal = std::move (onRemovePedal);
 
-    addButton.setTooltip ("Put a new block on the canvas, wired in just before Out.");
-    addButton.onClick = [this]
-    {
-        const auto count = (float) nodes.size();
-        showAddMenu (canvas.getLocalBounds().toFloat().getRelativePoint (0.25f + 0.07f * std::fmod (count, 8.0f),
-                                                                          0.25f + 0.25f * std::fmod (count, 3.0f)));
-    };
+    removeBlockButton.setTooltip ("Remove the selected block. (To take the whole pedal off the board, right-click "
+                                  "empty space on the canvas.)");
+    removeBlockButton.onClick = [this] { removeNode (selectedNode); };
+    addAndMakeVisible (removeBlockButton);
+
+    addButton.setTooltip ("Put a new block in an empty spot on the canvas. It floats until you wire it.");
+    addButton.onClick = [this] { showAddMenu (std::nullopt); };
     addAndMakeVisible (addButton);
 
     addAndMakeVisible (canvas);
@@ -617,6 +713,7 @@ void PatchPanel::selectNode (int index)
                              juce::dontSendNotification);
     }
 
+    removeBlockButton.setEnabled (index >= 0);
     canvas.repaint();
     resized();
 }
@@ -677,7 +774,7 @@ void PatchPanel::resized()
     auto header = getHeaderArea();
     power.setBounds (header.removeFromRight (60));
     header.removeFromRight (12);
-    removePedalButton.setBounds (header.removeFromRight (80));
+    removeBlockButton.setBounds (header.removeFromRight (110));
     header.removeFromRight (8);
     addButton.setBounds (header.removeFromRight (100));
 
@@ -729,13 +826,16 @@ void PatchPanel::resized()
     layoutKnobRow (editor, row);
 }
 
-void PatchPanel::showAddMenu (juce::Point<float> where)
+void PatchPanel::showAddMenu (std::optional<juce::Point<float>> clicked)
 {
-    if ((int) nodes.size() >= PatchPedal::maxNodes)
+    const bool full = (int) nodes.size() >= PatchPedal::maxNodes;
+    constexpr int removePedalItem = 1000;
+
+    if (full && (! clicked.has_value() || removePedal == nullptr))
         return;
 
     juce::PopupMenu menu;
-    menu.addSectionHeader ("Add a block");
+    menu.addSectionHeader (full ? "All 16 blocks are in use" : "Add a block");
 
     for (int t = 1; t < (int) BlockType::numTypes; ++t)
     {
@@ -747,19 +847,38 @@ void PatchPanel::showAddMenu (juce::Point<float> where)
         if (type == BlockType::gain || type == BlockType::lfo)
             menu.addSeparator();
 
-        menu.addItem (t, type == BlockType::mix ? juce::String ("Mix (+, joins two wires)") : juce::String (custom_blocks::getTypeName (type)));
+        menu.addItem (t, type == BlockType::mix ? juce::String ("Mix (+, joins two wires)") : juce::String (custom_blocks::getTypeName (type)),
+                      ! full);
     }
 
-    // Where it lands, as a share of the canvas.
-    const auto area = canvas.getLocalBounds().toFloat();
-    const auto x = juce::jlimit (0.0f, 1.0f, (where.x - 70.0f) / juce::jmax (1.0f, area.getWidth() - 140.0f));
-    const auto y = juce::jlimit (0.0f, 1.0f, (where.y - 20.0f) / juce::jmax (1.0f, area.getHeight() - 40.0f));
+    if (clicked.has_value() && removePedal != nullptr)
+    {
+        menu.addSeparator();
+        menu.addItem (removePedalItem, "Remove the Patch pedal from the board");
+    }
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (canvas.localAreaToGlobal (juce::Rectangle<int> (juce::roundToInt (where.x), juce::roundToInt (where.y), 1, 1))),
+    // Where it lands: where you clicked, or an empty spot.
+    const auto spot = clicked.has_value() ? canvas.toNodePosition (*clicked) : canvas.findFreeSpot();
+    const auto x = spot.x;
+    const auto y = spot.y;
+
+    const auto options = clicked.has_value()
+        ? juce::PopupMenu::Options().withTargetScreenArea (canvas.localAreaToGlobal (juce::Rectangle<int> (juce::roundToInt (clicked->x), juce::roundToInt (clicked->y), 1, 1)))
+        : juce::PopupMenu::Options().withTargetComponent (addButton);
+
+    menu.showMenuAsync (options,
                         [safe = juce::Component::SafePointer<PatchPanel> (this), x, y] (int result)
                         {
                             if (safe == nullptr || result <= 0)
                                 return;
+
+                            if (result == removePedalItem)
+                            {
+                                if (safe->removePedal != nullptr)
+                                    safe->removePedal();   // this panel may be gone afterwards
+
+                                return;
+                            }
 
                             const auto node = safe->pedal.addNode ((BlockType) result, x, y);
                             safe->nodes = safe->pedal.getNodesInUse();
@@ -772,7 +891,7 @@ void PatchPanel::showNodeMenu (int index)
     juce::PopupMenu menu;
     menu.addItem (1, "Remove " + juce::String (custom_blocks::getTypeName (pedal.getNode (index).getType())));
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (canvas),
+    menu.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
                         [safe = juce::Component::SafePointer<PatchPanel> (this), index] (int result)
                         {
                             if (safe != nullptr && result == 1)

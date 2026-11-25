@@ -10,10 +10,10 @@
     joined by wires, and below it the controls of the selected block.
 
     Drag a block to move it. Drag from a block's output (the dot on its right)
-    to another block's input (the dot on its left) to wire them; drag a wire's
-    end off an input to unplug it. A modulator's orange dot wires it to the
-    block it moves. Right-click a block to remove it, or the empty canvas to
-    add one there.
+    to another block's input (the dot on its left) to wire them; click a wire
+    (or drag its end off an input) to unplug it. A modulator's orange dot wires
+    it to the block it moves. New blocks float, unwired. Right-click a block to
+    remove it, or the empty canvas to add one there.
 */
 class PatchPanel final : public TonePanel,
                          private juce::Timer
@@ -48,9 +48,22 @@ private:
         /** What is under the mouse. */
         struct Hit
         {
-            enum Kind { nothing, body, nodeInput, nodeOutput, modOutput, inputPill, outputPill } kind = nothing;
+            enum Kind { nothing, body, nodeInput, nodeOutput, modOutput, inputPill, outputPill, wire } kind = nothing;
             int node = -1;
             int input = 0;   // for nodeInput: 0, or 1 for a Mix's second input
+
+            // For a wire: node -1 is the wire into Out, and input -1 a modulator's link.
+
+            bool operator== (const Hit&) const = default;
+        };
+
+        /** A wire on the canvas, as a Hit::wire that says how to unplug it. */
+        struct Wire
+        {
+            Hit id;
+            juce::Point<float> from, to;
+            juce::Colour colour;
+            bool dashed;
         };
 
         struct Wiring
@@ -75,10 +88,25 @@ private:
         juce::Point<float> getModPort (int node) const;
         juce::Point<float> getOutPillPort() const;
         int numInputs (int node) const;
+        std::vector<Wire> getWires() const;
+        void cutWire (const Hit&);
         bool hasOutput (int node) const;
         void finishWire (const Wiring&, const Hit& target);
         void paintNode (juce::Graphics&, int node) const;
+        static juce::Path makeWire (juce::Point<float> from, juce::Point<float> to);
         static void drawWire (juce::Graphics&, juce::Point<float> from, juce::Point<float> to, juce::Colour, bool dashed);
+
+    public:
+        /** The node position (0 to 1 across and down) whose block is centred on `p`. */
+        juce::Point<float> toNodePosition (juce::Point<float> p) const;
+
+        /** An empty spot for a new block, as a node position. */
+        juce::Point<float> findFreeSpot() const;
+
+        /** Where block centres can go. */
+        juce::Rectangle<float> getNodeArea() const;
+
+    private:
 
         PatchPanel& owner;
         std::optional<Wiring> wiring;
@@ -89,7 +117,8 @@ private:
     void refreshNodes();
     void timerCallback() override;
     void selectNode (int node);
-    void showAddMenu (juce::Point<float> where);
+    /** The add menu, at a spot clicked on the canvas or (with none) beside an empty spot. */
+    void showAddMenu (std::optional<juce::Point<float>> clicked);
     void showNodeMenu (int node);
     void removeNode (int node);
     void refreshGraph();
@@ -97,7 +126,8 @@ private:
 
     PatchPedal& pedal;
     ParameterToggle power;
-    juce::TextButton removePedalButton { "Remove" };
+    juce::TextButton removeBlockButton { "Remove block" };
+    std::function<void()> removePedal;
     juce::TextButton addButton { "Add block" };
     Canvas canvas { *this };
     ParameterKnob level;

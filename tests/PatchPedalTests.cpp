@@ -53,8 +53,8 @@ TEST_CASE ("an empty patch passes the signal through untouched")
 TEST_CASE ("new patch blocks chain up before the output")
 {
     auto pedal = makePatch();
-    const auto hp = pedal->addNode (BlockType::highPass, 0.3f, 0.5f);
-    const auto lp = pedal->addNode (BlockType::lowPass, 0.6f, 0.5f);
+    const auto hp = pedal->addNode (BlockType::highPass, 0.3f, 0.5f, true);
+    const auto lp = pedal->addNode (BlockType::lowPass, 0.6f, 0.5f, true);
     pedal->getNode (hp).block.frequency.set (300.0f);
     pedal->getNode (lp).block.frequency.set (2000.0f);
 
@@ -75,9 +75,9 @@ TEST_CASE ("new patch blocks chain up before the output")
 TEST_CASE ("one output can feed two parallel blocks, joined by a mix")
 {
     auto pedal = makePatch();
-    const auto lp = pedal->addNode (BlockType::lowPass, 0.3f, 0.3f);
-    const auto hp = pedal->addNode (BlockType::highPass, 0.3f, 0.7f);
-    const auto mix = pedal->addNode (BlockType::mix, 0.7f, 0.5f);
+    const auto lp = pedal->addNode (BlockType::lowPass, 0.3f, 0.3f, true);
+    const auto hp = pedal->addNode (BlockType::highPass, 0.3f, 0.7f, true);
+    const auto mix = pedal->addNode (BlockType::mix, 0.7f, 0.5f, true);
     REQUIRE (pedal->connect (PatchPedal::inputSource, lp, 0));
     REQUIRE (pedal->connect (PatchPedal::inputSource, hp, 0));
     REQUIRE (pedal->connect (lp, mix, 0));
@@ -95,7 +95,7 @@ TEST_CASE ("one output can feed two parallel blocks, joined by a mix")
 
     // Only a mix has a second input, and modulators carry no sound.
     REQUIRE_FALSE (pedal->connect (PatchPedal::inputSource, lp, 1));
-    const auto lfo = pedal->addNode (BlockType::lfo, 0.5f, 0.1f);
+    const auto lfo = pedal->addNode (BlockType::lfo, 0.5f, 0.1f, true);
     REQUIRE_FALSE (pedal->connect (lfo, mix, 0));
 }
 
@@ -103,8 +103,8 @@ TEST_CASE ("a feedback loop repeats and dies away, and can never run away")
 {
     // input -> mix (A) -> output, and mix -> gain -> back into mix (B): an echo every 32 samples.
     auto pedal = makePatch();
-    const auto mix = pedal->addNode (BlockType::mix, 0.4f, 0.5f);
-    const auto gain = pedal->addNode (BlockType::gain, 0.7f, 0.8f);
+    const auto mix = pedal->addNode (BlockType::mix, 0.4f, 0.5f, true);
+    const auto gain = pedal->addNode (BlockType::gain, 0.7f, 0.8f, true);
     REQUIRE (pedal->connect (PatchPedal::inputSource, mix, 0));
     REQUIRE (pedal->connect (gain, mix, 1));
     REQUIRE (pedal->connect (mix, gain, 0));
@@ -136,8 +136,8 @@ TEST_CASE ("a feedback loop repeats and dies away, and can never run away")
 TEST_CASE ("an LFO in a patch makes a tremolo on the block it moves")
 {
     auto pedal = makePatch();
-    const auto gain = pedal->addNode (BlockType::gain, 0.5f, 0.5f);
-    const auto lfo = pedal->addNode (BlockType::lfo, 0.5f, 0.2f);
+    const auto gain = pedal->addNode (BlockType::gain, 0.5f, 0.5f, true);
+    const auto lfo = pedal->addNode (BlockType::lfo, 0.5f, 0.2f, true);
     REQUIRE (pedal->getNode (lfo).block.getTargetSlot() == gain);
     pedal->getNode (lfo).block.rate.set (5.0f);
     pedal->getNode (lfo).block.depth.set (100.0f);
@@ -162,7 +162,7 @@ TEST_CASE ("an LFO in a patch makes a tremolo on the block it moves")
 TEST_CASE ("rewiring a patch while playing never clicks")
 {
     auto pedal = makePatch();
-    const auto lp = pedal->addNode (BlockType::lowPass, 0.5f, 0.5f);
+    const auto lp = pedal->addNode (BlockType::lowPass, 0.5f, 0.5f, true);
     pedal->getNode (lp).block.frequency.set (400.0f);
     pedal->reset();
 
@@ -174,7 +174,7 @@ TEST_CASE ("rewiring a patch while playing never clicks")
         if (offset == 9600)
             pedal->connectOutput (PatchPedal::inputSource);
         if (offset == 19200)
-            pedal->addNode (BlockType::clipper, 0.7f, 0.5f);
+            pedal->addNode (BlockType::clipper, 0.7f, 0.5f, true);
         if (offset == 28800)
             pedal->removeNode (lp);
 
@@ -200,8 +200,8 @@ TEST_CASE ("a patch and its wiring are saved in presets and come back")
     Pedalboard::PedalList before { std::make_shared<Pedal> (*findPedalType ("patch")) }, after;
     auto& patch = dynamic_cast<PatchPedal&> (before[0]->getEffect());
     patch.enabled.set (1.0f);
-    const auto lp = patch.addNode (BlockType::lowPass, 0.25f, 0.75f);
-    const auto mix = patch.addNode (BlockType::mix, 0.8f, 0.4f);
+    const auto lp = patch.addNode (BlockType::lowPass, 0.25f, 0.75f, true);
+    const auto mix = patch.addNode (BlockType::mix, 0.8f, 0.4f, true);
     patch.connect (PatchPedal::inputSource, mix, 1);
     patch.getNode (lp).block.frequency.set (640.0f);
     chain.getBoard().setPedals (before, after);
@@ -231,8 +231,8 @@ TEST_CASE ("the patch response graph matches what you hear")
     pedal->getResponseDb ({ 1000.0f }, hasBlocks);
     REQUIRE_FALSE (hasBlocks);
 
-    const auto lp = pedal->addNode (BlockType::lowPass, 0.3f, 0.3f);
-    const auto mix = pedal->addNode (BlockType::mix, 0.7f, 0.5f);
+    const auto lp = pedal->addNode (BlockType::lowPass, 0.3f, 0.3f, true);
+    const auto mix = pedal->addNode (BlockType::mix, 0.7f, 0.5f, true);
     pedal->connect (PatchPedal::inputSource, lp, 0);
     pedal->connect (lp, mix, 0);
     pedal->connect (PatchPedal::inputSource, mix, 1);
@@ -252,11 +252,29 @@ TEST_CASE ("a full patch uses little processor time", "[.][performance]")
     auto pedal = makePatch();
 
     for (int i = 0; i < PatchPedal::maxNodes; ++i)
-        pedal->addNode (i % 4 == 3 ? BlockType::clipper : BlockType::peak, 0.5f, 0.5f);
+        pedal->addNode (i % 4 == 3 ? BlockType::clipper : BlockType::peak, 0.5f, 0.5f, true);
 
     auto signal = test::sine (220.0, 0.2f, sampleRate, (int) sampleRate * 10);
     const auto start = juce::Time::getMillisecondCounterHiRes();
     run (*pedal, signal);
     const auto share = (juce::Time::getMillisecondCounterHiRes() - start) / 10000.0 * 100.0;
     WARN ("16 blocks: " << share << "% of one core");
+}
+
+TEST_CASE ("a block added from the canvas floats, unwired, until you wire it")
+{
+    auto pedal = makePatch();
+    const auto lp = pedal->addNode (BlockType::lowPass, 0.5f, 0.5f);
+    const auto lfo = pedal->addNode (BlockType::lfo, 0.5f, 0.2f);
+
+    REQUIRE (pedal->getNode (lp).getSource (0) == PatchPedal::noSource);
+    REQUIRE (pedal->getNode (lfo).block.getTargetSlot() < 0);
+    REQUIRE (pedal->getOutputSource() == PatchPedal::inputSource);
+
+    // Still a clean passthrough, since nothing is wired to the block.
+    const auto in = test::sine (5000.0, 0.3f, sampleRate, 4800);
+    const auto out = run (*pedal, in);
+
+    for (size_t i = 0; i < in.size(); ++i)
+        REQUIRE_THAT (out[i], Catch::Matchers::WithinAbs (in[i], 1.0e-6));
 }

@@ -70,10 +70,11 @@ public:
     /** The nodes in use, by index. */
     std::vector<int> getNodesInUse() const;
 
-    /** Adds a block at (x, y). A sound block is wired in just before the
-        output; a modulator listens to the input and moves the block feeding
-        the output, when it can. Returns the node, or -1 when all are in use. */
-    int addNode (BlockType, float x, float y);
+    /** Adds a block at (x, y), unwired. With `wireIn`, a sound block is
+        wired in just before the output, and a modulator listens to the input
+        and moves the block feeding the output, when it can. Returns the node,
+        or -1 when all are in use. */
+    int addNode (BlockType, float x, float y, bool wireIn = false);
 
     /** Removes a node. Whatever listened to it listens to the node's own
         first input instead, so a chain closes up around the gap. */

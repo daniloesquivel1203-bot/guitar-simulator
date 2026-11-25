@@ -141,7 +141,7 @@ std::vector<int> PatchPedal::getNodesInUse() const
     return result;
 }
 
-int PatchPedal::addNode (BlockType type, float x, float y)
+int PatchPedal::addNode (BlockType type, float x, float y, bool wireIn)
 {
     if (type == BlockType::empty || type == BlockType::numTypes || type == BlockType::split || type == BlockType::pathB)
         return -1;
@@ -167,23 +167,26 @@ int PatchPedal::addNode (BlockType type, float x, float y)
     node.y.set (y);
     node.inA.set (0.0f);
     node.inB.set (0.0f);
+    node.block.type.set ((float) type);
+
+    if (! wireIn)
+        return chosen;   // floating: no wires until you draw them
+
     const auto feedingOutput = getOutputSource();
 
     if (custom_blocks::isModulator (type))
     {
         node.inA.set ((float) (inputSource + 2));
-        node.block.type.set ((float) type);
         setTarget (chosen, feedingOutput);
         return chosen;
     }
 
-    // A new sound block goes just before the output, so adding blocks still makes a chain.
+    // Wired in just before the output, so adding blocks makes a chain.
     node.inA.set ((float) (feedingOutput + 2));
 
     if (type == BlockType::mix)
         node.inB.set ((float) (feedingOutput + 2));
 
-    node.block.type.set ((float) type);
     output.set ((float) (chosen + 2));
     return chosen;
 }
