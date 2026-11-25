@@ -26,7 +26,7 @@ PatchPanel::Canvas::Canvas (PatchPanel& ownerToUse)
     : owner (ownerToUse)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("Drag a block to move it. Drag from a block's right-hand dot to another block's left-hand dot to wire them. "
+    setTooltip ("Drag a block to move it. Drag between a block's right-hand dot and another block's left-hand dot, either way, to wire them. "
                 "Click a wire to cut it. Right-click a block to remove it, or empty space to add one.");
 }
 
@@ -395,8 +395,16 @@ void PatchPanel::Canvas::paint (juce::Graphics& g)
 
     if (wiring.has_value())
     {
-        const auto from = wiring->fromModulator ? getModPort (wiring->source) : getOutputPort (wiring->source);
-        drawWire (g, from, wiring->end, wiring->fromModulator ? modColour : Theme::accent, wiring->fromModulator);
+        if (wiring->into.has_value())
+        {
+            const auto to = wiring->into->kind == Hit::outputPill ? getOutPillPort() : getInputPort (wiring->into->node, wiring->into->input);
+            drawWire (g, wiring->end, to, Theme::accent, false);
+        }
+        else
+        {
+            const auto from = wiring->fromModulator ? getModPort (wiring->source) : getOutputPort (wiring->source);
+            drawWire (g, from, wiring->end, wiring->fromModulator ? modColour : Theme::accent, wiring->fromModulator);
+        }
     }
 
     if (owner.nodes.empty())
@@ -454,15 +462,15 @@ void PatchPanel::Canvas::mouseDown (const juce::MouseEvent& event)
     switch (hit.kind)
     {
         case Hit::nodeOutput:
-            wiring = Wiring { false, hit.node, event.position };
+            wiring = Wiring { false, hit.node, event.position, std::nullopt };
             break;
 
         case Hit::modOutput:
-            wiring = Wiring { true, hit.node, event.position };
+            wiring = Wiring { true, hit.node, event.position, std::nullopt };
             break;
 
         case Hit::inputPill:
-            wiring = Wiring { false, PatchPedal::inputSource, event.position };
+            wiring = Wiring { false, PatchPedal::inputSource, event.position, std::nullopt };
             break;
 
         case Hit::nodeInput:
@@ -473,11 +481,15 @@ void PatchPanel::Canvas::mouseDown (const juce::MouseEvent& event)
             if (source != PatchPedal::noSource)
             {
                 pedal.connect (PatchPedal::noSource, hit.node, hit.input);
-                wiring = Wiring { false, source, event.position };
+                wiring = Wiring { false, source, event.position, std::nullopt };
             }
             else
             {
-                owner.selectNode (hit.node);
+                // An empty input: draw a wire back from it to an output.
+                if (hit.node != owner.selectedNode)
+                    owner.selectNode (hit.node);
+
+                wiring = Wiring { false, PatchPedal::noSource, event.position, hit };
             }
 
             break;
@@ -490,7 +502,11 @@ void PatchPanel::Canvas::mouseDown (const juce::MouseEvent& event)
             if (source != PatchPedal::noSource)
             {
                 pedal.connectOutput (PatchPedal::noSource);
-                wiring = Wiring { false, source, event.position };
+                wiring = Wiring { false, source, event.position, std::nullopt };
+            }
+            else
+            {
+                wiring = Wiring { false, PatchPedal::noSource, event.position, hit };
             }
 
             break;
@@ -554,6 +570,32 @@ void PatchPanel::Canvas::mouseUp (const juce::MouseEvent& event)
 void PatchPanel::Canvas::finishWire (const Wiring& w, const Hit& target)
 {
     auto& pedal = owner.pedal;
+
+    if (w.into.has_value())
+    {
+        // Drawn backwards: dropped on an output (a block, or In) gives the source.
+        const auto plugInto = [&] (int source)
+        {
+            if (w.into->kind == Hit::outputPill)
+                pedal.connectOutput (source);
+            else if (source != w.into->node)
+                pedal.connect (source, w.into->node, w.into->input);
+        };
+
+        if (target.kind == Hit::inputPill)
+            plugInto (PatchPedal::inputSource);
+        else if (target.kind == Hit::modOutput && w.into->kind == Hit::nodeInput)
+        {
+            // A modulator's orange dot: let it move this block instead.
+            pedal.setTarget (target.node, w.into->node);
+            owner.refreshTargetChoices();
+        }
+        else if ((target.kind == Hit::nodeOutput || target.kind == Hit::body || target.kind == Hit::nodeInput)
+                 && target.node >= 0 && hasOutput (target.node))
+            plugInto (target.node);
+
+        return;
+    }
 
     if (w.fromModulator)
     {

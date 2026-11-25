@@ -71,6 +71,10 @@ private:
             bool fromModulator = false;
             int source = PatchPedal::noSource;   // the node (or the input) the wire comes from
             juce::Point<float> end;
+
+            /** Set when the wire was drawn backwards, from an empty input (or Out),
+                and still needs a source: the input it leads into. */
+            std::optional<Hit> into;
         };
 
         struct Moving
