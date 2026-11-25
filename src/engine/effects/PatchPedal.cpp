@@ -591,7 +591,7 @@ std::vector<float> PatchPedal::getResponseDb (const std::vector<float>& frequenc
 
     // A copy of the patch, measured with an impulse quiet enough that the
     // clippers stay in their gentle region. Modulators are held still, and
-    // the blocks that make new tones (reducer, ring mod, rectifier, ducker)
+    // the blocks that make new tones (reducer, ring mod, rectifier, ducker, folder, noise)
     // are left out: the graph shows the filtering around them.
     PatchPedal copy;
     const auto mine = getControls(), theirs = copy.getControls();
@@ -609,7 +609,8 @@ std::vector<float> PatchPedal::getResponseDb (const std::vector<float>& frequenc
 
         const auto type = node->getType();
 
-        if (type == BlockType::reducer || type == BlockType::multiply || type == BlockType::rectifier || type == BlockType::ducker)
+        if (type == BlockType::reducer || type == BlockType::multiply || type == BlockType::rectifier || type == BlockType::ducker
+            || type == BlockType::wavefolder || type == BlockType::noise)
             node->block.mix.set (0.0f);
     }
 

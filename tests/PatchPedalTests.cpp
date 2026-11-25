@@ -369,3 +369,37 @@ TEST_CASE ("an inverted gain in a loop gives negative feedback")
     REQUIRE (out[0] > 0.05f);
     REQUIRE (out[32] < -0.02f);
 }
+
+TEST_CASE ("a wavefolder folds loud peaks back down and stays in bounds")
+{
+    auto pedal = makePatch();
+    const auto fold = pedal->addNode (BlockType::wavefolder, 0.5f, 0.5f, true);
+    pedal->getNode (fold).block.driveDb.set (24.0f);
+    pedal->getNode (fold).block.gainDb.set (0.0f);
+    pedal->reset();
+
+    const auto out = run (*pedal, test::sine (200.0, 0.3f, sampleRate, 24000));
+    REQUIRE (test::allFinite (out));
+    REQUIRE (test::peak (out) <= 0.2501f);
+    // Folding makes lots of high harmonics; plain clipping at this level would not reach this far up.
+    REQUIRE (test::amplitudeAt (out, 200.0 * 9.0, sampleRate, 4800) > 0.01);
+}
+
+TEST_CASE ("a noise block hisses on its own and stays quiet at zero level")
+{
+    auto pedal = makePatch();
+    const auto noise = pedal->addNode (BlockType::noise, 0.5f, 0.5f);
+    REQUIRE (pedal->connectOutput (noise));
+    pedal->reset();
+
+    const std::vector<float> silence (24000, 0.0f);
+    auto out = run (*pedal, silence);
+    REQUIRE (test::allFinite (out));
+    REQUIRE (test::rms (out, 4800) > 0.001);
+    REQUIRE (test::peak (out) < 0.25f);
+
+    pedal->getNode (noise).block.mix.set (0.0f);
+    pedal->reset();
+    out = run (*pedal, silence);
+    REQUIRE (test::peak (out, 4800) < 1.0e-6f);
+}

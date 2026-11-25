@@ -34,6 +34,8 @@ enum class BlockType
     multiply,    // added later: new types go at the end, so saved type numbers keep their meaning
     rectifier,
     ducker,
+    wavefolder,
+    noise,
     numTypes
 };
 
@@ -204,6 +206,8 @@ private:
     std::array<float, 8> allPassState {};
     float heldSample = 0.0f;
     double carrierPhase = 0.0;
+    uint32_t noiseState = 0x9e3779b9u;
+    float noiseTone = 0.0f;
     int holdCounter = 0;
 
     BlockType type = BlockType::empty;
