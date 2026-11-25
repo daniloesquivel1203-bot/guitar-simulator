@@ -26,6 +26,9 @@ const char* getTypeName (BlockType type) noexcept
         case BlockType::split:      return "Split into two paths";
         case BlockType::pathB:      return "Path B (start the second path)";
         case BlockType::mix:        return "Mix (join the paths)";
+        case BlockType::multiply:   return "Multiply (ring mod)";
+        case BlockType::rectifier:  return "Rectifier (octave up)";
+        case BlockType::ducker:     return "Ducker (one wire turns another down)";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -54,6 +57,9 @@ const char* getShortName (BlockType type) noexcept
         case BlockType::split:      return "Split";
         case BlockType::pathB:      return "Path B";
         case BlockType::mix:        return "Mix";
+        case BlockType::multiply:   return "Ring mod";
+        case BlockType::rectifier:  return "Rectify";
+        case BlockType::ducker:     return "Ducker";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -82,6 +88,9 @@ const char* getDescription (BlockType type) noexcept
         case BlockType::split:      return "Copies the signal into two paths. Drag blocks onto the top or bottom path; the + joins them again. Removing the split puts the blocks back in one line.";
         case BlockType::pathB:      return "Starts the second path. Blocks after it, up to the Mix, get the signal from the Split.";
         case BlockType::mix:        return "Joins the two paths back together. Blend sets how much of the bottom path you hear.";
+        case BlockType::multiply:   return "Multiplies the top input by the lower one for clangy, bell-like tones. With the lower dot empty it uses its own tone at Frequency.";
+        case BlockType::rectifier:  return "Flips the bottom half of the wave up, adding an octave above what you play. Classic octave fuzz; try a clipper after it.";
+        case BlockType::ducker:     return "Turns the top input down while the lower one is loud. Dry guitar in the lower dot and a delay in the top: echoes swell when you stop.";
         case BlockType::empty:
         case BlockType::numTypes:   break;
     }
@@ -122,6 +131,9 @@ void SvfStage::setCoefficients (BlockType type, float hz, float q, float gainDb,
         case BlockType::split:
         case BlockType::pathB:
         case BlockType::mix:
+        case BlockType::multiply:
+        case BlockType::rectifier:
+        case BlockType::ducker:
         case BlockType::numTypes:   m0 = 1.0f; m1 = 0.0f;                     m2 = 0.0f;  break;
     }
 
@@ -162,7 +174,8 @@ const char* const BlockParams::fieldNames[BlockParams::numFields] = { "type", "f
 BlockParams::BlockParams (const std::function<const char* (int)>& idFor, const std::vector<const char*>& targetNames)
     : type (idFor (0), "Type",
             { "Empty", "Low-pass", "High-pass", "Band-pass", "Notch", "Peak", "Low shelf", "High shelf", "Gain", "Clipper",
-              "LFO", "Envelope", "Delay", "All-pass", "Reducer", "Split", "Path B", "Mix" }),
+              "LFO", "Envelope", "Delay", "All-pass", "Reducer", "Split", "Path B", "Mix",
+              "Multiply", "Rectifier", "Ducker" }),
       frequency (idFor (1), "Frequency", 20.0f, 20000.0f, 1000.0f, 1.0f, " Hz", true),
       resonance (idFor (2), "Resonance", 0.3f, 10.0f, 0.707f, 0.01f, "", true),
       gainDb (idFor (3), "Gain", -24.0f, 24.0f, 0.0f, 0.1f, " dB"),
@@ -215,6 +228,7 @@ void BlockRunner::reset() noexcept
     allPassState.fill (0.0f);
     heldSample = 0.0f;
     holdCounter = 0;
+    carrierPhase = 0.0;
 }
 
 void BlockRunner::setShape (BlockType newType, bool newSteep) noexcept
@@ -283,7 +297,7 @@ void BlockRunner::updateFilter (float frequencyRatio) noexcept
                      gainDb.getCurrentValue(), steep, rate, stages, numStages);
 }
 
-void BlockRunner::process (const BlockParams& slot, float* samples, int numSamples, const float* mod) noexcept
+void BlockRunner::process (const BlockParams& slot, float* samples, int numSamples, const float* mod, const float* side) noexcept
 {
     auto& runner = *this;
     sync (slot, false);
@@ -410,6 +424,69 @@ void BlockRunner::process (const BlockParams& slot, float* samples, int numSampl
         return;
     }
 
+    if (type == BlockType::multiply)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float other;
+
+            if (side != nullptr)
+            {
+                // Two guitar-level signals multiplied come out very quiet; make up most of it.
+                other = 4.0f * side[i];
+            }
+            else
+            {
+                // Its own sine at Frequency, which a modulator sweeps up to 3 octaves either way.
+                const auto hz = runner.frequency.getNextValue() * (mod != nullptr ? std::exp2 (3.0f * mod[i]) : 1.0f);
+                runner.carrierPhase += juce::jlimit (0.0, 0.49, (double) hz / rate);
+                runner.carrierPhase -= std::floor (runner.carrierPhase);
+                other = std::sin (juce::MathConstants<float>::twoPi * (float) runner.carrierPhase);
+            }
+
+            const auto ringed = samples[i] * other;
+            samples[i] = (samples[i] + runner.mix.getNextValue() * (ringed - samples[i]))
+                       * juce::Decibels::decibelsToGain (runner.gainDb.getNextValue());
+        }
+
+        return;
+    }
+
+    if (type == BlockType::rectifier)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Full-wave: the wave's bottom half flipped up doubles its pitch, and leaves an offset to take out.
+            const auto flipped = std::abs (samples[i]);
+            const auto blocked = flipped - runner.dcX1 + dcCoefficient * runner.dcY1;
+            runner.dcX1 = flipped;
+            runner.dcY1 = blocked;
+
+            samples[i] = (samples[i] + runner.mix.getNextValue() * (blocked - samples[i]))
+                       * juce::Decibels::decibelsToGain (runner.gainDb.getNextValue());
+        }
+
+        return;
+    }
+
+    if (type == BlockType::ducker)
+    {
+        // Follows the lower input (or, with none wired, the block's own input) like an Envelope does.
+        const auto* key = side != nullptr ? side : samples;
+        const auto gain = juce::Decibels::decibelsToGain (slot.sensitivity.get()) / clipCeiling;
+        const auto up = (float) (1.0 - std::exp (-1.0 / (slot.attack.get() * 0.001 * rate)));
+        const auto down = (float) (1.0 - std::exp (-1.0 / (slot.release.get() * 0.001 * rate)));
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto x = std::abs (key[i]) * gain;
+            runner.envelope += (x > runner.envelope ? up : down) * (x - runner.envelope);
+            samples[i] *= 1.0f - runner.mix.getNextValue() * juce::jmin (1.0f, runner.envelope);
+        }
+
+        return;
+    }
+
     if (type == BlockType::clipper)
     {
         const auto shape = slot.shape.getIndex();
@@ -503,6 +580,9 @@ const char* getModulatedKnobName (BlockType type) noexcept
         case BlockType::clipper:    return "drive";
         case BlockType::delay:      return "time";
         case BlockType::allPass:    return "frequency";
+        case BlockType::multiply:   return "frequency";
+        case BlockType::rectifier:
+        case BlockType::ducker:
         case BlockType::empty:
         case BlockType::lfo:
         case BlockType::envelope:
@@ -536,6 +616,10 @@ std::vector<Control> getControlsFor (BlockParams& slot, BlockType type)
         case BlockType::allPass:    return { { &slot.frequency, "Frequency" }, { &slot.mix, "Depth" }, { &slot.stages, "Stages" } };
         case BlockType::reducer:    return { { &slot.bits, "Bits" }, { &slot.downsample, "Rate divide" }, { &slot.mix, "Mix" } };
         case BlockType::mix:        return { { &slot.mix, "Blend" } };
+        case BlockType::multiply:   return { { &slot.frequency, "Frequency" }, { &slot.mix, "Mix" }, { &slot.gainDb, "Level" } };
+        case BlockType::rectifier:  return { { &slot.mix, "Mix" }, { &slot.gainDb, "Level" } };
+        case BlockType::ducker:     return { { &slot.mix, "Amount" }, { &slot.sensitivity, "Sensitivity" },
+                                             { &slot.attack, "Attack" }, { &slot.release, "Release" } };
         case BlockType::split:
         case BlockType::pathB:
         case BlockType::empty:
@@ -565,6 +649,9 @@ void BlockParams::setFresh (BlockType newType)
         case BlockType::clipper:    slot.gainDb.set (-4.0f); break;
         case BlockType::allPass:    slot.frequency.set (700.0f); slot.mix.set (100.0f); break;
         case BlockType::reducer:    slot.mix.set (100.0f); break;
+        case BlockType::multiply:   slot.frequency.set (440.0f); slot.mix.set (100.0f); break;
+        case BlockType::rectifier:  slot.mix.set (100.0f); break;
+        case BlockType::ducker:     slot.mix.set (80.0f); slot.release.set (400.0f); break;
         case BlockType::gain:
         case BlockType::delay:
         case BlockType::split:

@@ -278,3 +278,94 @@ TEST_CASE ("a block added from the canvas floats, unwired, until you wire it")
     for (size_t i = 0; i < in.size(); ++i)
         REQUIRE_THAT (out[i], Catch::Matchers::WithinAbs (in[i], 1.0e-6));
 }
+
+TEST_CASE ("a ring mod with nothing in its lower dot multiplies by its own tone")
+{
+    auto pedal = makePatch();
+    const auto ring = pedal->addNode (BlockType::multiply, 0.5f, 0.5f, true);
+    pedal->getNode (ring).block.frequency.set (200.0f);
+    pedal->reset();
+
+    const auto out = run (*pedal, test::sine (1000.0, 0.2f, sampleRate, 48000));
+    REQUIRE (test::allFinite (out));
+    // A 1 kHz note times 200 Hz gives 800 Hz and 1200 Hz, each at half the level, and no 1 kHz.
+    REQUIRE_THAT (test::amplitudeAt (out, 800.0, sampleRate, 4800), Catch::Matchers::WithinAbs (0.1, 0.01));
+    REQUIRE_THAT (test::amplitudeAt (out, 1200.0, sampleRate, 4800), Catch::Matchers::WithinAbs (0.1, 0.01));
+    REQUIRE (test::amplitudeAt (out, 1000.0, sampleRate, 4800) < 0.005);
+}
+
+TEST_CASE ("a ring mod multiplies its two wires together")
+{
+    auto pedal = makePatch();
+    const auto ring = pedal->addNode (BlockType::multiply, 0.5f, 0.5f);
+    REQUIRE (pedal->connect (PatchPedal::inputSource, ring, 0));
+    REQUIRE (pedal->connect (PatchPedal::inputSource, ring, 1));
+    REQUIRE (pedal->connectOutput (ring));
+    pedal->reset();
+
+    // A note times itself (made up by 4x): 4 * 0.2 * 0.2 * sin^2 has an octave at 0.08.
+    const auto out = run (*pedal, test::sine (500.0, 0.2f, sampleRate, 48000));
+    REQUIRE_THAT (test::amplitudeAt (out, 1000.0, sampleRate, 4800), Catch::Matchers::WithinAbs (0.08, 0.008));
+    REQUIRE (test::amplitudeAt (out, 500.0, sampleRate, 4800) < 0.005);
+}
+
+TEST_CASE ("a rectifier adds the octave above and leaves no offset")
+{
+    auto pedal = makePatch();
+    pedal->addNode (BlockType::rectifier, 0.5f, 0.5f, true);
+    pedal->reset();
+
+    const auto out = run (*pedal, test::sine (500.0, 0.3f, sampleRate, 48000));
+    REQUIRE (test::allFinite (out));
+    REQUIRE (test::amplitudeAt (out, 1000.0, sampleRate, 24000) > 0.1);
+    REQUIRE (test::amplitudeAt (out, 500.0, sampleRate, 24000) < 0.005);
+
+    double mean = 0.0;
+    for (size_t i = 24000; i < out.size(); ++i)
+        mean += out[i];
+    REQUIRE (std::abs (mean / 24000.0) < 0.01);
+}
+
+TEST_CASE ("a ducker turns its top wire down while the lower one is loud")
+{
+    auto pedal = makePatch();
+    const auto duck = pedal->addNode (BlockType::ducker, 0.5f, 0.5f, true);
+    pedal->getNode (duck).block.mix.set (80.0f);
+    pedal->reset();
+    const auto in = test::sine (440.0, 0.3f, sampleRate, 24000);
+
+    // Nothing in the lower dot: it follows itself, so a loud note is turned well down.
+    auto out = run (*pedal, in);
+    REQUIRE (test::rms (out, 12000) < 0.4 * test::rms (in, 12000));
+
+    // A quiet key in the lower dot: the top wire comes through almost untouched.
+    const auto quiet = pedal->addNode (BlockType::gain, 0.3f, 0.8f);
+    pedal->getNode (quiet).block.gainDb.set (-24.0f);
+    pedal->getNode (duck).block.sensitivity.set (0.0f);
+    REQUIRE (pedal->connect (PatchPedal::inputSource, quiet, 0));
+    REQUIRE (pedal->connect (quiet, duck, 1));
+    pedal->reset();
+    out = run (*pedal, in);
+    REQUIRE (test::rms (out, 12000) > 0.85 * test::rms (in, 12000));
+}
+
+TEST_CASE ("an inverted gain in a loop gives negative feedback")
+{
+    // The same loop as above with the gain inverted: the first repeat comes back upside down.
+    auto pedal = makePatch();
+    const auto mix = pedal->addNode (BlockType::mix, 0.4f, 0.5f, true);
+    const auto gain = pedal->addNode (BlockType::gain, 0.7f, 0.8f, true);
+    REQUIRE (pedal->connect (PatchPedal::inputSource, mix, 0));
+    REQUIRE (pedal->connect (gain, mix, 1));
+    REQUIRE (pedal->connect (mix, gain, 0));
+    REQUIRE (pedal->connectOutput (mix));
+    pedal->getNode (mix).block.mix.set (50.0f);
+    pedal->getNode (gain).block.invert.set (1.0f);
+    pedal->reset();
+
+    std::vector<float> impulse (4800, 0.0f);
+    impulse[0] = 0.2f;
+    const auto out = run (*pedal, impulse);
+    REQUIRE (out[0] > 0.05f);
+    REQUIRE (out[32] < -0.02f);
+}

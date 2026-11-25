@@ -322,6 +322,9 @@ void CustomPedalPanel::showAddMenu (juce::Rectangle<int> screenArea)
         if (type == BlockType::pathB || type == BlockType::mix)
             continue;
 
+        if (custom_blocks::isPatchOnly (type))
+            continue;   // these need a second wire, which only the Patch pedal has
+
         if (type == BlockType::split)
             menu.addItem (t, custom_blocks::getTypeName (type), (int) blocks.size() <= CustomPedal::maxBlocks - 3);
         else

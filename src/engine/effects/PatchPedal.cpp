@@ -230,7 +230,7 @@ bool PatchPedal::connect (int source, int index, int input)
     if (! isSoundBlock (node.getType()) && ! custom_blocks::isModulator (node.getType()))
         return false;
 
-    if (input == 1 && node.getType() != BlockType::mix)
+    if (input == 1 && ! custom_blocks::hasSecondInput (node.getType()))
         return false;
 
     if (source != noSource && source != inputSource)
@@ -313,7 +313,7 @@ PatchPedal::Structure PatchPedal::readStructure() const noexcept
         const auto type = s.types[(size_t) i];
         const bool used = type != BlockType::empty && type != BlockType::numTypes;
         s.sourceA[(size_t) i] = used ? clean (node.getSource (0)) : noSource;
-        s.sourceB[(size_t) i] = used && type == BlockType::mix ? clean (node.getSource (1)) : noSource;
+        s.sourceB[(size_t) i] = used && custom_blocks::hasSecondInput (type) ? clean (node.getSource (1)) : noSource;
 
         const auto target = node.block.getTargetSlot();
         s.targets[(size_t) i] = custom_blocks::isModulator (type) && juce::isPositiveAndBelow (target, maxNodes) && target != i
@@ -526,7 +526,12 @@ void PatchPedal::runStep (const float* input, float* out, int numSamples) noexce
             mod = modulation.data();
         }
 
-        runner.process (params, result, numSamples, mod);
+        const float* side = nullptr;
+
+        if (custom_blocks::hasSecondInput (type) && applied.sourceB[(size_t) n] != noSource)
+            side = sourceBuffer (applied.sourceB[(size_t) n], n, loopScratchB.data());
+
+        runner.process (params, result, numSamples, mod, side);
 
         // A safety net: nothing silly ever reaches the next block.
         for (int i = 0; i < numSamples; ++i)
@@ -585,8 +590,9 @@ std::vector<float> PatchPedal::getResponseDb (const std::vector<float>& frequenc
         hasBlocks = hasBlocks || isSoundBlock (nodes[(size_t) n]->getType());
 
     // A copy of the patch, measured with an impulse quiet enough that the
-    // clippers stay in their gentle region. Modulators are held still and
-    // the reducer (which would round a quiet impulse away) is left out.
+    // clippers stay in their gentle region. Modulators are held still, and
+    // the blocks that make new tones (reducer, ring mod, rectifier, ducker)
+    // are left out: the graph shows the filtering around them.
     PatchPedal copy;
     const auto mine = getControls(), theirs = copy.getControls();
 
@@ -601,7 +607,9 @@ std::vector<float> PatchPedal::getResponseDb (const std::vector<float>& frequenc
         if (custom_blocks::isModulator (node->getType()))
             node->block.depth.set (0.0f);
 
-        if (node->getType() == BlockType::reducer)
+        const auto type = node->getType();
+
+        if (type == BlockType::reducer || type == BlockType::multiply || type == BlockType::rectifier || type == BlockType::ducker)
             node->block.mix.set (0.0f);
     }
 

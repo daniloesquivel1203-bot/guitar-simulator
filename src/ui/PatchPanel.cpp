@@ -107,7 +107,7 @@ int PatchPanel::Canvas::numInputs (int index) const
 {
     const auto type = owner.pedal.getNode (index).getType();
 
-    if (type == BlockType::mix)
+    if (custom_blocks::hasSecondInput (type))
         return 2;
 
     if (type == BlockType::lfo)
@@ -140,8 +140,11 @@ juce::Point<float> PatchPanel::Canvas::getInputPort (int index, int input) const
 {
     const auto box = getNodeBounds (index);
 
-    if (numInputs (index) == 2)
+    if (owner.pedal.getNode (index).getType() == BlockType::mix)
         return { box.getX() + 3.0f, box.getY() + box.getHeight() * (input == 0 ? 0.22f : 0.78f) };
+
+    if (numInputs (index) == 2)
+        return { box.getX(), box.getY() + box.getHeight() * (input == 0 ? 0.25f : 0.75f) };
 
     return { box.getX(), box.getCentreY() };
 }
@@ -886,7 +889,7 @@ void PatchPanel::showAddMenu (std::optional<juce::Point<float>> clicked)
         if (type == BlockType::split || type == BlockType::pathB)
             continue;   // on the canvas, any output can feed several blocks
 
-        if (type == BlockType::gain || type == BlockType::lfo)
+        if (type == BlockType::gain || type == BlockType::lfo || type == BlockType::multiply)
             menu.addSeparator();
 
         menu.addItem (t, type == BlockType::mix ? juce::String ("Mix (+, joins two wires)") : juce::String (custom_blocks::getTypeName (type)),

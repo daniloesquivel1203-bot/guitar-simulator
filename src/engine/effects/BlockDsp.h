@@ -31,8 +31,21 @@ enum class BlockType
     split,
     pathB,
     mix,
+    multiply,    // added later: new types go at the end, so saved type numbers keep their meaning
+    rectifier,
+    ducker,
     numTypes
 };
+
+/** True for blocks with a second input (the lower dot on the Patch canvas):
+    Mix, Multiply and Ducker. */
+inline bool hasSecondInput (BlockType type) noexcept
+{
+    return type == BlockType::mix || type == BlockType::multiply || type == BlockType::ducker;
+}
+
+/** True for blocks only the Patch pedal offers, since they need its wiring. */
+inline bool isPatchOnly (BlockType type) noexcept   { return type == BlockType::multiply || type == BlockType::ducker; }
 
 /** True for the LFO and Envelope blocks, which make no sound themselves but
     move another block's main knob. */
@@ -166,8 +179,9 @@ public:
     juce::SmoothedValue<float>& getBlend() noexcept   { return mix; }
 
     /** Runs a sound-making block in place. `mod` is the modulation of its
-        main knob, -1 to 1 per sample, or nullptr. */
-    void process (const BlockParams&, float* samples, int numSamples, const float* mod) noexcept;
+        main knob, -1 to 1 per sample, or nullptr. `side` is a Multiply or
+        Ducker block's second input, or nullptr when nothing is wired there. */
+    void process (const BlockParams&, float* samples, int numSamples, const float* mod, const float* side = nullptr) noexcept;
 
     /** Runs an LFO or Envelope block, adding its movement into `out` (which
         may be nullptr when it moves nothing). `input` is what an envelope follows. */
@@ -189,6 +203,7 @@ private:
     int writeIndex = 0;
     std::array<float, 8> allPassState {};
     float heldSample = 0.0f;
+    double carrierPhase = 0.0;
     int holdCounter = 0;
 
     BlockType type = BlockType::empty;
