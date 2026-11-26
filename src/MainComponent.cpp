@@ -283,6 +283,10 @@ void MainComponent::rebuildChain (int fallbackIndex)
                         rebuildChain (chainStrip.getSelected());
                     });
 
+                // The Patch pedal has its canvas of wired blocks.
+                if (auto* patch = dynamic_cast<PatchPedal*> (&pedal->getEffect()))
+                    return std::make_unique<PatchPanel> (*patch, std::move (onRemove));
+
                 return std::make_unique<EffectPanel> (pedal->getEffect(), std::move (onRemove),
                     SharedTempo { [this] { return engine.getPractice().getMetronome().getBpm(); },
                                   [this] (double bpm) { PracticePanel::setTempo (engine, bpm); } });

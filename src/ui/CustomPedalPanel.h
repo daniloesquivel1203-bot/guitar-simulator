@@ -2,6 +2,7 @@
 
 #include "../engine/CustomPedalLibrary.h"
 #include "../engine/effects/CustomPedal.h"
+#include "BlockEditorParts.h"
 #include "TonePanels.h"
 
 #include <optional>
@@ -74,25 +75,9 @@ private:
         std::optional<Drag> drag;
     };
 
-    class WidthKnob;
-
-    /** The combined frequency response of the filter, gain and all-pass blocks and the paths. */
-    class ResponseGraph final : public juce::Component,
-                                public juce::SettableTooltipClient
-    {
-    public:
-        ResponseGraph();
-        void setCurve (std::vector<float> newDb, bool show);
-        void paint (juce::Graphics&) override;
-
-        static const std::vector<float>& getFrequencies();
-
-    private:
-        std::vector<float> db;
-        bool showing = false;
-    };
-
-    ResponseGraph graph;
+    ResponseGraph graph { "How the filter, gain and all-pass blocks, and any split paths, change the level across the frequency range, "
+                          "from 20 Hz on the left to 20 kHz on the right. The middle line is no change; "
+                          "the dotted lines are 12 dB up and down." };
     juce::String lastResponseKey;
     void refreshGraph();
 
@@ -124,7 +109,7 @@ private:
     int selectedSlot = -1;
 
     juce::OwnedArray<ParameterKnob> knobs;
-    juce::OwnedArray<WidthKnob> widthKnobs;
+    juce::OwnedArray<BlockWidthKnob> widthKnobs;
     juce::OwnedArray<ParameterChoice> choices;
     juce::OwnedArray<ParameterToggle> switches;
 };
