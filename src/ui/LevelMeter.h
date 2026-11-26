@@ -2,7 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-/** A vertical peak meter with a decibel scale and an optional clip light. */
+/** A peak meter with a decibel scale and an optional clip light. It runs
+    left to right when it is wider than it is tall, otherwise bottom to top. */
 class LevelMeter final : public juce::Component
 {
 public:
@@ -27,11 +28,17 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto area = getLocalBounds().toFloat();
+        const bool horizontal = area.getWidth() > area.getHeight();
 
         if (hasClipLight)
         {
-            auto light = area.removeFromTop (10.0f);
-            area.removeFromTop (4.0f);
+            auto light = horizontal ? area.removeFromRight (10.0f) : area.removeFromTop (10.0f);
+
+            if (horizontal)
+                area.removeFromRight (4.0f);
+            else
+                area.removeFromTop (4.0f);
+
             g.setColour (clipHoldUpdates > 0 ? juce::Colour (0xffe5484d) : juce::Colour (0xff3a2a2c));
             g.fillRoundedRectangle (light, 2.0f);
         }
@@ -40,7 +47,8 @@ public:
         g.fillRoundedRectangle (area, 3.0f);
 
         const auto proportion = juce::jlimit (0.0f, 1.0f, (levelDb - minDb) / -minDb);
-        auto bar = area.withTrimmedTop (area.getHeight() * (1.0f - proportion));
+        auto bar = horizontal ? area.withWidth (area.getWidth() * proportion)
+                              : area.withTrimmedTop (area.getHeight() * (1.0f - proportion));
 
         g.setColour (levelDb > -6.0f ? juce::Colour (0xfff5a524) : juce::Colour (0xff3ecf8e));
         g.fillRoundedRectangle (bar, 3.0f);
@@ -49,8 +57,10 @@ public:
 
         for (auto markDb : { -6.0f, -12.0f, -24.0f, -36.0f, -48.0f })
         {
-            const auto y = area.getY() + area.getHeight() * (markDb / minDb);
-            g.fillRect (area.getX(), y, area.getWidth(), 1.0f);
+            if (horizontal)
+                g.fillRect (area.getRight() - area.getWidth() * (markDb / minDb), area.getY(), 1.0f, area.getHeight());
+            else
+                g.fillRect (area.getX(), area.getY() + area.getHeight() * (markDb / minDb), area.getWidth(), 1.0f);
         }
     }
 

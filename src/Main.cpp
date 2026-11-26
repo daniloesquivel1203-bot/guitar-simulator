@@ -45,11 +45,14 @@ private:
             setUsingNativeTitleBar (true);
             setContentOwned (new MainComponent (engineToUse), true);
             setResizable (true, true);
-            setResizeLimits (940, 520, 2400, 1400);
+            setResizeLimits (1100, 700, 2800, 1800);
 
             // Reopen where the window was last time, if that is still on a screen.
-            if (! restoreWindowStateFromString (windowSettings.getValue (windowStateKey)))
-                centreWithSize (getWidth(), getHeight());
+            // The pedal layout needs more room than the old one, so a window saved
+            // smaller than that starts fresh at the new size.
+            if (! restoreWindowStateFromString (windowSettings.getValue (windowStateKey))
+                || getWidth() < 1100 || getHeight() < 700)
+                centreWithSize (1280, 800);
 
             setVisible (true);
         }

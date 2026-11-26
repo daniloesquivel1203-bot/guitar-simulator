@@ -26,10 +26,17 @@ Windows. The More button next to the preset list opens that folder.
 4. Play. The input meter should move, and the red light above it means the
    interface input is clipping, so turn its gain knob down.
 
-5. The row of tiles is the signal chain, left to right. Click a tile to show
-   its controls, and click the light on a tile to switch it on or off.
-6. On the Cab tile, choose a cabinet or load your own impulse response file
-   (WAV or AIFF) for a more realistic speaker sound.
+5. The stack of bricks on the left is the signal chain, top to bottom: the
+   pedals before the amp, the amp and cabinet, then the pedals after the amp.
+   Click a brick to show that pedal in the middle as a stompbox, and click the
+   light on a brick (or the pedal's footswitch) to switch it on or off. Drag a
+   brick up or down to move it, including to the other side of the amp.
+6. The amp and cabinet are always on the right. The head's display picks a
+   voicing; the cabinet's display picks a cabinet or loads your own impulse
+   response file (WAV or AIFF) for a more realistic speaker sound. With
+   **Match voicing** on, picking a voicing also picks the cabinet that suits
+   it; choosing a cabinet yourself turns it off. The lights on the head and
+   cabinet switch each one on or off.
 
 Settings are remembered between launches. If the interface is unplugged, the
 app waits and reconnects when it returns.
@@ -41,13 +48,14 @@ voicing. A capture is a `.nam` file: a small neural network trained on a real
 amp or pedal at one setting. Thousands are free to download, for example from
 ToneHunt.
 
-1. Click the Amp tile, open the drop-down and choose **Load capture file
+1. On the amp head, open the display and choose **Load capture file
    (.nam)...**.
 2. The knobs change to Input (how hard the capture is driven), Bass, Mid,
    Treble and Output. Pick a built-in voicing from the same drop-down to go
    back; the capture stays in the list until you choose **Remove capture**.
-3. Captures marked as including the speaker cabinet switch the Cab block off
-   when loaded, so you do not get two cabinets. Switch it back on if you want.
+3. Captures marked as including the speaker cabinet switch the cabinet off
+   when loaded, so you do not get two cabinets. Switch it back on with the
+   cabinet's light if you want.
 
 Captures that report their loudness are levelled to a common volume. A capture
 made at a different sample rate from your audio device is converted on the
@@ -63,9 +71,11 @@ The captures are run by [NeuralAmpModelerCore](https://github.com/sdatkinson/Neu
 
 ## Pedal library
 
-Click a **+** tile on either side of the amp to add a pedal. The menu groups
-them by kind. Up to 8 pedals fit on each side, and the same pedal can be added
-more than once.
+The tray under the pedal shows the pedals one group at a time. Click a pedal
+in the tray to add it right after the selected brick, or drag it onto the stack
+and drop it where the orange line shows. The **+ Add pedal** brick opens the
+same list as a menu. Up to 8 pedals fit on each side of the amp, and the same
+pedal can be added more than once.
 
 | Group | Pedals |
 | --- | --- |

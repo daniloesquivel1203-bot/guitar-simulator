@@ -46,6 +46,14 @@ public:
     }
 
     Parameter& getParameter() noexcept   { return parameter; }
+    juce::Slider& getSlider() noexcept       { return slider; }
+
+    /** Colours the caption and value, for knobs printed on a coloured pedal or amp panel. */
+    void setInk (juce::Colour ink)
+    {
+        caption.setColour (juce::Label::textColourId, ink.withAlpha (0.9f));
+        slider.setColour (juce::Slider::textBoxTextColourId, ink.withAlpha (0.8f));
+    }
 
     /** Call when the parameter may have been changed from somewhere else. */
     void refresh()
@@ -101,6 +109,9 @@ public:
     }
 
     static constexpr int preferredHeight = 46;
+
+    /** Colours the caption, for choices printed on a coloured pedal. */
+    void setInk (juce::Colour ink)   { caption.setColour (juce::Label::textColourId, ink.withAlpha (0.9f)); }
 
     void resized() override
     {

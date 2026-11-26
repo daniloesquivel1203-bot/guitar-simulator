@@ -9,7 +9,10 @@
 namespace
 {
 constexpr int meterRefreshHz = 30;
-constexpr int stripWidth = 120;
+constexpr int stackWidth = 270;
+constexpr int rigWidth = 450;
+constexpr int trayHeight = 150;
+constexpr int capHeight = 62;
 constexpr int headerHeight = 100;
 constexpr int myPedalsFirstId = 10000;   // add-menu ids of saved Custom pedals
 
@@ -21,14 +24,16 @@ const auto warning = Theme::warning;
 
 MainComponent::MainComponent (AudioEngine& engineToUse)
     : engine (engineToUse),
-      presetBar (engine.getPresets())
+      presetBar (engine.getPresets()),
+      ampRig (engine.getChain().getAmp(), engine.getChain().getCapture(), engine.getChain().getCabinet(), engine.getSettings())
 {
     // A loaded preset replaces the pedals, so rebuild the strip and the panel.
     presetBar.onPresetLoaded = [this]
     {
         // Every knob may have changed, so the panel is rebuilt too.
         panelBlock = nullptr;
-        rebuildChain (chainStrip.getSelected());
+        rebuildChain (chainStack.getSelected());
+        ampRig.refreshAll();
     };
     addAndMakeVisible (presetBar);
 
@@ -72,23 +77,33 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     practiceButton.onClick = [this] { showPractice(); };
     addAndMakeVisible (practiceButton);
 
-    chainStrip.onSelect = [this] (int index) { selectBlock (index); };
-    chainStrip.onToggle = [this] (int index)
+    chainStack.onSelect = [this] (int index) { selectBlock (index); };
+    chainStack.onToggle = [this] (int index)
     {
-        if (index == chainStrip.getSelected() && detailPanel != nullptr)
+        if (index == chainStack.getSelected() && detailPanel != nullptr)
             detailPanel->refreshPower();
     };
-    chainStrip.onAdd = [this] (Pedalboard::Side side, juce::Rectangle<int> area) { showAddMenu (side, area); };
-    chainStrip.onPedalMenu = [this] (int tile) { showPedalMenu (tile); };
-    chainStrip.onMove = [this] (Pedalboard::Side fromSide, int fromIndex, Pedalboard::Side toSide, int toIndex)
+    chainStack.onAdd = [this] (juce::Rectangle<int> brick) { showAddMenu (chainStack.localAreaToGlobal (brick)); };
+    chainStack.onDropNew = [this] (const juce::var& description, Pedalboard::Side side, int index)
+    {
+        addFromTray (description.toString(), side, index);
+    };
+    chainStack.onPedalMenu = [this] (int tile) { showPedalMenu (tile); };
+    chainStack.onMove = [this] (Pedalboard::Side fromSide, int fromIndex, Pedalboard::Side toSide, int toIndex)
     {
         if (engine.getChain().getBoard().move (fromSide, fromIndex, toSide, toIndex))
             rebuildChain();
     };
-    addAndMakeVisible (chainStrip);
+    addAndMakeVisible (chainStack);
 
-    // Start on the amp, which is where most of the tone is set.
-    selectedBlock = &engine.getChain().getAmp().enabled;
+    pedalTray.onPick = [this] (const juce::String& description) { addFromTray (description); };
+    pedalTray.getMyPedals = [this] { return customPedals.getNames(); };
+    addAndMakeVisible (pedalTray);
+    addAndMakeVisible (ampRig);
+
+    // Start on the first pedal, if there is one. The amp is always in view.
+    const auto& firstPedals = engine.getChain().getBoard().getPedals (Pedalboard::beforeAmp);
+    selectedBlock = firstPedals.empty() ? &engine.getChain().getAmp().enabled : &firstPedals.front()->getEffect().enabled;
     rebuildChain();
 
     title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
@@ -109,8 +124,8 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
 
     for (auto* heading : { &inputHeading, &outputHeading })
     {
-        heading->setFont (juce::FontOptions (12.0f, juce::Font::bold));
-        heading->setJustificationType (juce::Justification::centred);
+        heading->setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        heading->setJustificationType (juce::Justification::centredLeft);
         heading->setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
         addAndMakeVisible (*heading);
     }
@@ -137,7 +152,7 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     refreshStatus();
     startTimerHz (meterRefreshHz);
 
-    setSize (1040, 560);
+    setSize (1280, 800);
 }
 
 MainComponent::~MainComponent()
@@ -147,8 +162,8 @@ MainComponent::~MainComponent()
 
 void MainComponent::styleGainSlider (juce::Slider& slider, double minDb, double maxDb, double valueDb)
 {
-    slider.setSliderStyle (juce::Slider::LinearVertical);
-    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 72, 20);
+    slider.setSliderStyle (juce::Slider::LinearHorizontal);
+    slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 20);
     slider.setRange (minDb, maxDb, 0.1);
     slider.setTextValueSuffix (" dB");
     slider.setDoubleClickReturnValue (true, 0.0);
@@ -162,9 +177,46 @@ void MainComponent::paint (juce::Graphics& g)
     auto area = getLocalBounds();
     area.removeFromTop (headerHeight);
 
-    g.setColour (panel);
-    g.fillRect (area.removeFromLeft (stripWidth));
-    g.fillRect (area.removeFromRight (stripWidth));
+    // The stack's column, darker, with the input and output boxes.
+    auto stack = area.removeFromLeft (stackWidth);
+    g.setColour (juce::Colour (0xff15161a));
+    g.fillRect (stack);
+    g.setColour (juce::Colours::black);
+    g.fillRect (stack.removeFromRight (1));
+
+    stack = stack.reduced (14, 12);
+    paintCap (g, stack.removeFromTop (capHeight));
+    paintCap (g, stack.removeFromBottom (capHeight));
+
+    // The floor the pedal stands on.
+    if (! showingTuner && ! showingPractice)
+    {
+        auto floor = area.withTrimmedBottom (trayHeight);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2b2d33), (float) floor.getCentreX(), (float) floor.getY() + (float) floor.getHeight() * 0.35f,
+                                                 juce::Colour (0xff17181c), (float) floor.getX(), (float) floor.getBottom(), true));
+        g.fillRect (floor);
+
+        if (detailPanel == nullptr)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.4f));
+            g.setFont (juce::FontOptions (14.0f));
+            g.drawFittedText ("Pick a pedal in the stack to show it here,\nor add one from the tray below.",
+                              floor.withTrimmedRight (rigWidth), juce::Justification::centred, 2);
+        }
+    }
+}
+
+void MainComponent::paintCap (juce::Graphics& g, juce::Rectangle<int> area) const
+{
+    g.setColour (juce::Colour (0xff23252a));
+    g.fillRoundedRectangle (area.toFloat(), 8.0f);
+    g.setColour (juce::Colour (0xff30333a));
+    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 8.0f, 1.0f);
+}
+
+bool MainComponent::isWidePanelShowing() const
+{
+    return showingTuner || showingPractice || widePanel;
 }
 
 void MainComponent::resized()
@@ -195,35 +247,43 @@ void MainComponent::resized()
     statusLine.setBounds (header.removeFromLeft (header.getWidth() * 2 / 5));
     detailLine.setBounds (header);
 
-    auto layoutStrip = [] (juce::Rectangle<int> strip, juce::Label& heading, LevelMeter& meter,
-                           juce::Slider& slider, juce::Component* footer)
+    // Left: input level, the stack, output level.
+    auto stack = area.removeFromLeft (stackWidth).reduced (14, 12);
+    stack.removeFromRight (1);
+
+    const auto layoutCap = [] (juce::Rectangle<int> cap, juce::Label& heading, LevelMeter& meter,
+                               juce::Slider& slider, juce::Component* extra)
     {
-        strip = strip.reduced (12);
-        heading.setBounds (strip.removeFromTop (20));
-        strip.removeFromTop (8);
+        cap = cap.reduced (10, 7);
+        auto top = cap.removeFromTop (24);
+        heading.setBounds (top.removeFromLeft (34));
 
-        // Reserve the footer row on both strips so the meters and sliders line up.
-        auto footerRow = strip.removeFromBottom (24);
-        strip.removeFromBottom (4);
+        if (extra != nullptr)
+            extra->setBounds (top.removeFromRight (70));
 
-        if (footer != nullptr)
-            footer->setBounds (footerRow);
-
-        // Stop the meter above the slider's text box.
-        meter.setBounds (strip.removeFromLeft (20).withTrimmedBottom (24));
-        strip.removeFromLeft (4);
-        slider.setBounds (strip);
+        slider.setBounds (top);
+        cap.removeFromTop (6);
+        meter.setBounds (cap.removeFromTop (10));
     };
 
-    layoutStrip (area.removeFromLeft (stripWidth), inputHeading, inputMeter, inputGain, nullptr);
-    layoutStrip (area.removeFromRight (stripWidth), outputHeading, outputMeter, outputGain, &muteButton);
+    layoutCap (stack.removeFromTop (capHeight), inputHeading, inputMeter, inputGain, nullptr);
+    layoutCap (stack.removeFromBottom (capHeight), outputHeading, outputMeter, outputGain, &muteButton);
+    stack.reduce (0, 10);
+    chainStack.setBounds (stack);
 
-    area = area.reduced (16);
-    chainStrip.setBounds (area.removeFromTop (64));
-    area.removeFromTop (16);
+    // Right: the amp. The tuner, practice tools and the bigger pedal editors use its space too.
+    const bool wide = isWidePanelShowing();
+    ampRig.setVisible (! wide);
+    pedalTray.setVisible (! showingTuner && ! showingPractice);
+
+    if (! wide)
+        ampRig.setBounds (area.removeFromRight (rigWidth));
+
+    if (pedalTray.isVisible())
+        pedalTray.setBounds (area.removeFromBottom (trayHeight));
 
     if (detailPanel != nullptr)
-        detailPanel->setBounds (area);
+        detailPanel->setBounds (wide ? area.reduced (16) : area);
 }
 
 void MainComponent::rebuildChain (int fallbackIndex)
@@ -231,7 +291,7 @@ void MainComponent::rebuildChain (int fallbackIndex)
     auto& chain = engine.getChain();
     auto& board = chain.getBoard();
 
-    std::vector<ChainStrip::Tile> tiles;
+    std::vector<ChainStack::Tile> tiles;
     panelMakers.clear();
     tilePedals.clear();
 
@@ -248,7 +308,8 @@ void MainComponent::rebuildChain (int fallbackIndex)
             if (auto* custom = dynamic_cast<CustomPedal*> (&pedal->getEffect()); custom != nullptr && custom->label.isNotEmpty())
                 tileName = custom->label;
 
-            tiles.push_back ({ ChainStrip::Kind::pedal, side, i, tileName, &pedal->getEffect().enabled });
+            tiles.push_back ({ ChainStack::Kind::pedal, side, i, tileName, pedal->type.category,
+                               pedal_look::pedalColour (pedal->type), &pedal->getEffect().enabled });
             tilePedals.push_back (pedal);
 
             // The panel's Remove button works on whichever position the pedal has by then.
@@ -280,43 +341,44 @@ void MainComponent::rebuildChain (int fallbackIndex)
                     {
                         // The tile and the panel title show the new name.
                         panelBlock = nullptr;
-                        rebuildChain (chainStrip.getSelected());
+                        rebuildChain (chainStack.getSelected());
                     });
 
                 // The Patch pedal has its canvas of wired blocks.
                 if (auto* patch = dynamic_cast<PatchPedal*> (&pedal->getEffect()))
                     return std::make_unique<PatchPanel> (*patch, std::move (onRemove));
 
-                return std::make_unique<EffectPanel> (pedal->getEffect(), std::move (onRemove),
+                return std::make_unique<EffectPanel> (pedal->getEffect(), pedal_look::pedalColour (pedal->type),
+                                                      pedal->type.category, std::move (onRemove),
                     SharedTempo { [this] { return engine.getPractice().getMetronome().getBpm(); },
                                   [this] (double bpm) { PracticePanel::setTempo (engine, bpm); } });
             });
-        }
-
-        if ((int) pedals.size() < Pedalboard::maxPedalsPerSide)
-        {
-            tiles.push_back ({ ChainStrip::Kind::add, side, -1, "+", nullptr });
-            panelMakers.push_back ({});
-            tilePedals.push_back ({});
         }
     };
 
     addSide (Pedalboard::beforeAmp);
 
-    tiles.push_back ({ ChainStrip::Kind::amp, Pedalboard::beforeAmp, -1, "Amp", &chain.getAmp().enabled });
-    panelMakers.push_back ([&chain] { return std::make_unique<AmpPanel> (chain.getAmp(), chain.getCapture(), chain.getCabinet()); });
-    tilePedals.push_back ({});
-    tiles.push_back ({ ChainStrip::Kind::cabinet, Pedalboard::afterAmp, -1, "Cab", &chain.getCabinet().enabled });
-    panelMakers.push_back ([&chain] { return std::make_unique<CabinetPanel> (chain.getCabinet()); });
+    // The amp and cabinet are one brick. Its controls are always in view on the right.
+    tiles.push_back ({ ChainStack::Kind::amp, Pedalboard::beforeAmp, -1, "Amp & Cab", {},
+                       juce::Colours::black, &chain.getAmp().enabled });
+    panelMakers.push_back ({});
     tilePedals.push_back ({});
 
     addSide (Pedalboard::afterAmp);
 
-    chainStrip.setTiles (tiles);
+    if (board.getPedals (Pedalboard::beforeAmp).size() + board.getPedals (Pedalboard::afterAmp).size()
+            < 2 * (size_t) Pedalboard::maxPedalsPerSide)
+    {
+        tiles.push_back ({ ChainStack::Kind::add, Pedalboard::afterAmp, -1, "+", {}, {}, nullptr });
+        panelMakers.push_back ({});
+        tilePedals.push_back ({});
+    }
+
+    chainStack.setTiles (tiles);
 
     if (showingTuner || showingPractice)
     {
-        chainStrip.setSelected (-1);
+        chainStack.setSelected (-1);
         return;
     }
 
@@ -326,7 +388,7 @@ void MainComponent::rebuildChain (int fallbackIndex)
         {
             // The same block's panel can stay; only the highlight moves.
             if (panelBlock == selectedBlock && detailPanel != nullptr)
-                chainStrip.setSelected (i);
+                chainStack.setSelected (i);
             else
                 selectBlock (i);
 
@@ -335,7 +397,7 @@ void MainComponent::rebuildChain (int fallbackIndex)
     }
 
     if (juce::isPositiveAndBelow (fallbackIndex, (int) tiles.size())
-        && tiles[(size_t) fallbackIndex].kind != ChainStrip::Kind::add)
+        && tiles[(size_t) fallbackIndex].kind != ChainStack::Kind::add)
         selectBlock (fallbackIndex);
     else
         selectAmp();
@@ -343,38 +405,62 @@ void MainComponent::rebuildChain (int fallbackIndex)
 
 void MainComponent::selectAmp()
 {
-    const auto& tiles = chainStrip.getTiles();
+    const auto& tiles = chainStack.getTiles();
 
     for (int i = 0; i < (int) tiles.size(); ++i)
-        if (tiles[(size_t) i].kind == ChainStrip::Kind::amp)
+        if (tiles[(size_t) i].kind == ChainStack::Kind::amp)
             return selectBlock (i);
 }
 
 void MainComponent::selectBlock (int index)
 {
-    if (! juce::isPositiveAndBelow (index, (int) panelMakers.size()) || panelMakers[(size_t) index] == nullptr)
+    if (! juce::isPositiveAndBelow (index, (int) panelMakers.size()))
         return;
 
-    chainStrip.setSelected (index);
-    selectedBlock = panelBlock = chainStrip.getTiles()[(size_t) index].enabled;
+    // The amp's controls are always showing, so selecting it just clears the middle.
+    if (chainStack.getTiles()[(size_t) index].kind == ChainStack::Kind::amp)
+    {
+        chainStack.setSelected (index);
+        selectedBlock = panelBlock = chainStack.getTiles()[(size_t) index].enabled;
+        showingTuner = showingPractice = widePanel = false;
+        tunerButton.setToggleState (false, juce::dontSendNotification);
+        practiceButton.setToggleState (false, juce::dontSendNotification);
+        detailPanel.reset();
+        panelPedal.reset();
+        resized();
+        repaint();
+        return;
+    }
+
+    if (panelMakers[(size_t) index] == nullptr)
+        return;
+
+    chainStack.setSelected (index);
+    selectedBlock = panelBlock = chainStack.getTiles()[(size_t) index].enabled;
     showingTuner = showingPractice = false;
     tunerButton.setToggleState (false, juce::dontSendNotification);
     practiceButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();   // closes the tuner first, if it was open
     panelPedal = tilePedals[(size_t) index];
     detailPanel = panelMakers[(size_t) index]();
+    widePanel = dynamic_cast<EffectPanel*> (detailPanel.get()) == nullptr;
     addAndMakeVisible (*detailPanel);
+
+    if (panelPedal != nullptr)
+        pedalTray.showCategory (panelPedal->type.category);
+
     resized();
+    repaint();
 }
 
-void MainComponent::showAddMenu (Pedalboard::Side side, juce::Rectangle<int> screenArea)
+void MainComponent::showAddMenu (juce::Rectangle<int> screenArea)
 {
     juce::PopupMenu menu;
-    menu.addSectionHeader (side == Pedalboard::beforeAmp ? "Add a pedal before the amp" : "Add a pedal after the amp");
+    menu.addSectionHeader ("Add a pedal after the selected one");
 
     // One submenu per category, in the order the categories first appear.
     const auto& types = getPedalTypes();
-    juce::StringArray categories;
+    juce::StringArray categories, descriptions;
 
     for (const auto& type : types)
         categories.addIfNotAlreadyThere (type.category);
@@ -383,80 +469,104 @@ void MainComponent::showAddMenu (Pedalboard::Side side, juce::Rectangle<int> scr
     {
         juce::PopupMenu submenu;
 
-        for (int i = 0; i < (int) types.size(); ++i)
-            if (category == types[(size_t) i].category)
-                submenu.addItem (i + 1, types[(size_t) i].create()->name);
+        for (const auto& type : types)
+        {
+            if (category == type.category)
+            {
+                descriptions.add (juce::String ("pedal:") + type.key);
+                submenu.addItem (descriptions.size(), type.create()->name);
+            }
+        }
 
         menu.addSubMenu (category, submenu);
     }
 
     // Custom pedals the player saved under their own names.
-    const auto myPedals = customPedals.getNames();
     juce::PopupMenu mine;
 
-    for (int i = 0; i < myPedals.size(); ++i)
-        mine.addItem (myPedalsFirstId + i, myPedals[i]);
+    for (const auto& name : customPedals.getNames())
+    {
+        descriptions.add ("mine:" + name);
+        mine.addItem (descriptions.size(), name);
+    }
 
-    if (myPedals.isEmpty())
+    if (mine.getNumItems() == 0)
         mine.addItem (-1, "None yet: use Save as my pedal on a Custom pedal", false);
 
     menu.addSeparator();
     menu.addSubMenu ("My pedals", mine);
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea),
-                        [safe = juce::Component::SafePointer<MainComponent> (this), side, myPedals] (int result)
+                        [safe = juce::Component::SafePointer<MainComponent> (this), descriptions] (int result)
                         {
-                            if (safe == nullptr || result <= 0)
-                                return;
-
-                            if (result >= myPedalsFirstId)
-                            {
-                                // A saved Custom pedal: add a Custom pedal and load its settings before it is heard.
-                                const auto name = myPedals[result - myPedalsFirstId];
-                                auto pedal = std::make_shared<Pedal> (*findPedalType ("custom"));
-                                auto& custom = dynamic_cast<CustomPedal&> (pedal->getEffect());
-
-                                if (! safe->customPedals.load (name, custom))
-                                    return dialogs::showMessage ("Could not add " + name, "That saved pedal could not be read.");
-
-                                custom.enabled.set (1.0f);
-                                auto& board = safe->engine.getChain().getBoard();
-                                auto list = board.getPedals (side);
-
-                                if ((int) list.size() >= Pedalboard::maxPedalsPerSide)
-                                    return;
-
-                                list.push_back (pedal);
-                                board.setPedals (side == Pedalboard::beforeAmp ? list : board.getPedals (Pedalboard::beforeAmp),
-                                                 side == Pedalboard::afterAmp ? list : board.getPedals (Pedalboard::afterAmp));
-                                safe->selectedBlock = &custom.enabled;
-                                safe->showingTuner = safe->showingPractice = false;
-                                safe->rebuildChain();
-                                return;
-                            }
-
-                            if (auto pedal = safe->engine.getChain().getBoard().add (side, getPedalTypes()[(size_t) result - 1]))
-                            {
-                                // Open the new pedal's panel, even if the tuner was showing.
-                                safe->selectedBlock = &pedal->getEffect().enabled;
-                                safe->showingTuner = safe->showingPractice = false;
-                                safe->rebuildChain();
-                            }
+                            if (safe != nullptr && result > 0)
+                                safe->addFromTray (descriptions[result - 1]);
                         });
+}
+
+void MainComponent::addFromTray (const juce::String& description)
+{
+    if (const auto point = chainStack.getInsertPointAfterSelection())
+        addFromTray (description, point->first, point->second);
+    else
+        dialogs::showMessage ("The pedalboard is full", "Remove a pedal to make room for another.");
+}
+
+void MainComponent::addFromTray (const juce::String& description, Pedalboard::Side side, int index)
+{
+    auto& board = engine.getChain().getBoard();
+
+    if ((int) board.getPedals (side).size() >= Pedalboard::maxPedalsPerSide)
+        return;
+
+    index = juce::jlimit (0, (int) board.getPedals (side).size(), index);
+    std::shared_ptr<Pedal> added;
+
+    if (description.startsWith ("mine:"))
+    {
+        // A saved Custom pedal: make a Custom pedal and load its settings before it is heard.
+        const auto name = description.fromFirstOccurrenceOf ("mine:", false, false);
+        auto pedal = std::make_shared<Pedal> (*findPedalType ("custom"));
+        auto& custom = dynamic_cast<CustomPedal&> (pedal->getEffect());
+
+        if (! customPedals.load (name, custom))
+            return dialogs::showMessage ("Could not add " + name, "That saved pedal could not be read.");
+
+        custom.enabled.set (1.0f);
+        auto list = board.getPedals (side);
+        list.insert (list.begin() + index, pedal);
+        board.setPedals (side == Pedalboard::beforeAmp ? list : board.getPedals (Pedalboard::beforeAmp),
+                         side == Pedalboard::afterAmp ? list : board.getPedals (Pedalboard::afterAmp));
+        added = pedal;
+    }
+    else if (const auto* type = findPedalType (description.fromFirstOccurrenceOf ("pedal:", false, false)))
+    {
+        added = board.add (side, *type, index);
+    }
+
+    if (added == nullptr)
+        return;
+
+    // Open the new pedal, even if the tuner was showing.
+    selectedBlock = &added->getEffect().enabled;
+    showingTuner = showingPractice = false;
+    tunerButton.setToggleState (false, juce::dontSendNotification);
+    practiceButton.setToggleState (false, juce::dontSendNotification);
+    rebuildChain();
 }
 
 void MainComponent::showPedalMenu (int tileIndex)
 {
-    const auto tile = chainStrip.getTiles()[(size_t) tileIndex];
+    const auto tile = chainStack.getTiles()[(size_t) tileIndex];
     const auto otherSide = tile.side == Pedalboard::beforeAmp ? Pedalboard::afterAmp : Pedalboard::beforeAmp;
     const bool otherSideFull = (int) engine.getChain().getBoard().getPedals (otherSide).size() >= Pedalboard::maxPedalsPerSide;
 
     juce::PopupMenu menu;
     menu.addItem (1, tile.side == Pedalboard::beforeAmp ? "Move after the amp" : "Move before the amp", ! otherSideFull);
     menu.addSeparator();
-    menu.addItem (2, "Remove " + tile.shortName);
+    menu.addItem (2, "Remove " + tile.name);
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (chainStrip),
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (chainStack),
                         [safe = juce::Component::SafePointer<MainComponent> (this), tile, otherSide] (int result)
                         {
                             if (safe == nullptr)
@@ -488,7 +598,7 @@ void MainComponent::removePedal (Pedalboard::Side side, int index)
         return;
 
     const auto wasSelected = &pedals[(size_t) index]->getEffect().enabled == selectedBlock;
-    const auto tileIndex = chainStrip.getSelected();
+    const auto tileIndex = chainStack.getSelected();
     board.remove (side, index);
 
     // The removed pedal's panel holds references to it, so close it first.
@@ -510,7 +620,7 @@ void MainComponent::showTuner()
         return;
     }
 
-    chainStrip.setSelected (-1);
+    chainStack.setSelected (-1);
     selectedBlock = panelBlock = nullptr;
     showingTuner = true;
     showingPractice = false;
@@ -532,7 +642,7 @@ void MainComponent::showPractice()
         return;
     }
 
-    chainStrip.setSelected (-1);
+    chainStack.setSelected (-1);
     selectedBlock = panelBlock = nullptr;
     showingPractice = true;
     showingTuner = false;
@@ -564,8 +674,16 @@ void MainComponent::timerCallback()
     if (practiceButton.getButtonText() != practiceText)
         practiceButton.setButtonText (practiceText);
 
-    // Keeps the tile lights in step with switches changed in the panel below.
-    chainStrip.repaint();
+    // Keeps the brick lights, and the amp brick's voicing and cabinet, in step with the controls.
+    {
+        const auto ampName = chain.getCapture().isInUse() ? juce::String ("Capture")
+                                                          : AmpModel::getVoicingNames()[chain.getAmp().voicing.getIndex()];
+        const auto cabName = chain.getCabinet().enabled.isOn() ? chain.getCabinet().getCurrentName() : juce::String ("cab off");
+        chainStack.setAmpDetail (ampName + " | " + cabName);
+    }
+
+    chainStack.repaint();
+    ampRig.refreshDimming();
 
     if (detailPanel != nullptr)
         detailPanel->refreshDimming();
@@ -658,7 +776,8 @@ void MainComponent::applyState (const juce::String& state)
 
     // Every knob may have changed, so the open panel is rebuilt too.
     panelBlock = nullptr;
-    rebuildChain (chainStrip.getSelected());
+    rebuildChain (chainStack.getSelected());
+    ampRig.refreshAll();
 }
 
 void MainComponent::undo()
