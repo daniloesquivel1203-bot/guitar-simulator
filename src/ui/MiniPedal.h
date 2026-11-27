@@ -36,6 +36,44 @@ inline void paintJack (juce::Graphics& g, juce::Rectangle<float> box, ChainStack
     g.fillRoundedRectangle (juce::Rectangle<float> (11.0f, 18.0f).withCentre (at.translated (input ? 1.5f : -1.5f, 0.0f)), 2.0f);
 }
 
+/** The number of knobs on a pedal: its controls that are neither switches nor choices. */
+inline int countKnobs (Effect& effect)
+{
+    const auto controls = effect.getControls();
+    return (int) std::count_if (controls.begin(), controls.end(), [] (Parameter* p) { return ! p->isChoice() && ! p->isSwitch(); });
+}
+
+/** `count` knobs laid out like the big stompbox does: one row of up to three,
+    then two rows of two or three, then rows of four. Each row is centred in `area`. */
+inline void paintKnobs (juce::Graphics& g, juce::Rectangle<float> area, int count, float maxSize, bool withPointers)
+{
+    if (count <= 0)
+        return;
+
+    const auto columns = count <= 3 ? count : (count == 4 ? 2 : (count <= 6 ? 3 : 4));
+    const auto rows = (count + columns - 1) / columns;
+    const auto size = juce::jmin (maxSize, area.getWidth() / (float) columns * 0.8f, area.getHeight() / (float) rows * 0.85f);
+    const auto stepX = juce::jmin (size * 1.45f, area.getWidth() / (float) columns);
+    const auto stepY = area.getHeight() / (float) rows;
+
+    for (int i = 0; i < count; ++i)
+    {
+        const auto row = i / columns;
+        const auto inRow = juce::jmin (columns, count - row * columns);
+        const auto c = juce::Point<float> (area.getCentreX() + ((float) (i % columns) - (float) (inRow - 1) * 0.5f) * stepX,
+                                           area.getY() + stepY * ((float) row + 0.5f));
+
+        g.setColour (juce::Colour (0xff1b1b1e));
+        g.fillEllipse (juce::Rectangle<float> (size, size).withCentre (c));
+
+        if (withPointers)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.8f));
+            g.drawLine (c.x, c.y, c.x, c.y - size * 0.4f, juce::jmax (1.0f, size * 0.07f));
+        }
+    }
+}
+
 inline void paintPedal (juce::Graphics& g, juce::Rectangle<float> box, const ChainStack::Tile& tile)
 {
     const bool on = tile.enabled != nullptr && tile.enabled->isOn();
@@ -47,17 +85,9 @@ inline void paintPedal (juce::Graphics& g, juce::Rectangle<float> box, const Cha
     pedal_look::paintEnclosure (g, box, face, juce::jmin (10.0f, box.getWidth() * 0.1f));
     const auto ink = pedal_look::inkFor (face);
 
-    // Two knobs across the top.
-    const auto knob = box.getWidth() * 0.22f;
-
-    for (auto fx : { 0.3f, 0.7f })
-    {
-        const auto c = juce::Point<float> (box.getX() + box.getWidth() * fx, box.getY() + box.getHeight() * 0.16f);
-        g.setColour (juce::Colour (0xff1b1b1e));
-        g.fillEllipse (juce::Rectangle<float> (knob, knob).withCentre (c));
-        g.setColour (juce::Colours::white.withAlpha (0.8f));
-        g.drawLine (c.x, c.y, c.x, c.y - knob * 0.4f, 1.5f);
-    }
+    // The pedal's own knobs, across the top.
+    paintKnobs (g, box.reduced (box.getWidth() * 0.08f, 0.0f).withTrimmedTop (box.getHeight() * 0.03f).withHeight (box.getHeight() * 0.27f),
+                tile.numKnobs, box.getWidth() * 0.22f, true);
 
     auto text = box.reduced (box.getWidth() * 0.07f, 0.0f).withTrimmedTop (box.getHeight() * 0.3f).withHeight (box.getHeight() * 0.3f);
     g.setColour (ink);

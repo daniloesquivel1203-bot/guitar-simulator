@@ -1,5 +1,7 @@
 #include "PedalTray.h"
 
+#include "MiniPedal.h"
+
 namespace
 {
 const juce::String myPedalsTab { "My pedals" };
@@ -37,17 +39,10 @@ public:
     {
         pedal_look::paintEnclosure (g, body, highlighted ? colour.brighter (0.15f) : colour, 7.0f);
 
-        // Up to three knobs across the top.
-        const auto knobs = juce::jlimit (1, 3, numKnobs);
-        const auto knobSize = 12.0f;
-        const auto rowWidth = (float) knobs * knobSize + (float) (knobs - 1) * 3.0f;
-        auto x = body.getCentreX() - rowWidth * 0.5f;
-
-        for (int i = 0; i < knobs; ++i, x += knobSize + 3.0f)
-        {
-            g.setColour (juce::Colour (0xff0d0d0d));
-            g.fillEllipse (x, body.getY() + 8.0f, knobSize, knobSize);
-        }
+        // The pedal's own knobs, in rows like the big stompbox.
+        const auto rows = numKnobs <= 3 ? 1 : (numKnobs <= 6 ? 2 : 3);
+        mini_pedal::paintKnobs (g, juce::Rectangle<float> (body.getX() + 4.0f, body.getY() + 5.0f, body.getWidth() - 8.0f, 15.0f * (float) rows),
+                                numKnobs, 12.0f, false);
 
         pedal_look::paintFootswitch (g, juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ body.getCentreX(), body.getBottom() - 15.0f }), false);
     }
@@ -201,9 +196,7 @@ void PedalTray::rebuildTiles()
             continue;
 
         const auto effect = type.create();
-        const auto controls = effect->getControls();
-        const auto numKnobs = (int) std::count_if (controls.begin(), controls.end(),
-                                                   [] (Parameter* p) { return ! p->isChoice() && ! p->isSwitch(); });
+        const auto numKnobs = mini_pedal::countKnobs (*effect);
         tileHolder.addAndMakeVisible (tiles.add (new MiniPedal (*this, juce::String ("pedal:") + type.key, effect->name,
                                                                 pedal_look::pedalColour (type), numKnobs)));
     }

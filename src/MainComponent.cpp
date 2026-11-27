@@ -391,7 +391,8 @@ void MainComponent::rebuildChain (int fallbackIndex)
                 tileName = custom->label;
 
             tiles.push_back ({ ChainStack::Kind::pedal, side, i, tileName, pedal->type.category,
-                               pedal_look::pedalColour (pedal->type), &pedal->getEffect().enabled });
+                               pedal_look::pedalColour (pedal->type), &pedal->getEffect().enabled,
+                               mini_pedal::countKnobs (pedal->getEffect()) });
             tilePedals.push_back (pedal);
 
             // The panel's Remove button works on whichever position the pedal has by then.

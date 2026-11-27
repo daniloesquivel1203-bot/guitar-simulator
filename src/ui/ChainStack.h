@@ -36,6 +36,7 @@ public:
         juce::String detail;     // category for pedals; voicing and cab for the amp
         juce::Colour colour;
         Parameter* enabled;      // nullptr for the add brick
+        int numKnobs = 2;        // for drawing the pedal small
     };
 
     std::function<void (int tile)> onSelect;
