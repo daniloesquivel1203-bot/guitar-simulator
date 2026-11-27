@@ -35,6 +35,9 @@ public:
 
     bool isPlaying() const noexcept   { return playing.load(); }
 
+    /** False when the last arrangement handed over is a song that plays once. */
+    bool isLooping() const noexcept   { return looping.load(); }
+
     /** Beats from the start of the loop. Negative during the count-in. After a
         song that does not loop has ended, it stays at the song's length. */
     double getPositionBeats() const noexcept   { return positionBeats.load(); }
@@ -82,6 +85,7 @@ private:
     std::atomic<bool> justStarted { false };
     std::atomic<double> positionBeats { 0.0 };
     std::atomic<double> lengthBeats { 0.0 };
+    std::atomic<bool> looping { true };
 
     std::array<std::atomic<float>, jam::numInstruments> levelsDb;
     std::array<std::atomic<bool>, jam::numInstruments> enabled;
