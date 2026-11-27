@@ -13,12 +13,10 @@ constexpr int stackWidth = 270;
 constexpr int rigWidth = 450;
 constexpr int trayHeight = 150;
 constexpr int capHeight = 62;
-constexpr int headerHeight = 100;
 constexpr int myPedalsFirstId = 10000;   // add-menu ids of saved Custom pedals
 
 const auto background = Theme::background;
 const auto panel = Theme::panel;
-const auto good = Theme::good;
 const auto warning = Theme::warning;
 }
 
@@ -124,15 +122,11 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
     addAndMakeVisible (title);
 
+    // Shown only when the audio setup needs attention.
     statusLine.setFont (juce::FontOptions (14.0f));
     statusLine.setJustificationType (juce::Justification::centredLeft);
-    addAndMakeVisible (statusLine);
-
-    detailLine.setFont (juce::FontOptions (13.0f));
-    detailLine.setJustificationType (juce::Justification::centredRight);
-    detailLine.setMinimumHorizontalScale (0.8f);
-    detailLine.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
-    addAndMakeVisible (detailLine);
+    statusLine.setColour (juce::Label::textColourId, warning);
+    addChildComponent (statusLine);
 
     settingsButton.onClick = [this] { showAudioSettings(); };
     addAndMakeVisible (settingsButton);
@@ -190,7 +184,7 @@ void MainComponent::paint (juce::Graphics& g)
     g.fillAll (background);
 
     auto area = getLocalBounds();
-    area.removeFromTop (headerHeight);
+    area.removeFromTop (getHeaderHeight());
 
     // The stack's column, darker, with the input and output boxes.
     auto stack = area.removeFromLeft (stackWidth);
@@ -225,38 +219,22 @@ void MainComponent::paint (juce::Graphics& g)
             const auto panelOrigin = stompbox->getPosition().toFloat();
 
             if (leftNeighbour.isVisible())
-                paintCable (g, leftNeighbour.getPosition().toFloat() + leftNeighbour.getJack(), panelOrigin + stompbox->getJack (true));
+                mini_pedal::paintCable (g, leftNeighbour.getPosition().toFloat() + leftNeighbour.getJack(), panelOrigin + stompbox->getJack (true));
 
             if (rightNeighbour.isVisible())
-                paintCable (g, panelOrigin + stompbox->getJack (false), rightNeighbour.getPosition().toFloat() + rightNeighbour.getJack());
+                mini_pedal::paintCable (g, panelOrigin + stompbox->getJack (false), rightNeighbour.getPosition().toFloat() + rightNeighbour.getJack());
         }
     }
 }
 
-void MainComponent::paintCable (juce::Graphics& g, juce::Point<float> from, juce::Point<float> to) const
+void MainComponent::showChainOverview()
 {
-    // A cable that sags a little between its plugs.
-    juce::Path cable;
-    const auto sag = juce::jmin (60.0f, std::abs (to.x - from.x) * 0.35f + 12.0f);
-    cable.startNewSubPath (from);
-    cable.cubicTo (from.x + (to.x - from.x) * 0.35f, juce::jmax (from.y, to.y) + sag,
-                   from.x + (to.x - from.x) * 0.65f, juce::jmax (from.y, to.y) + sag, to.x, to.y);
-
-    g.setColour (juce::Colours::black.withAlpha (0.35f));
-    g.strokePath (cable, juce::PathStrokeType (7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
-                  juce::AffineTransform::translation (0.0f, 3.0f));
-    g.setColour (juce::Colour (0xff111214));
-    g.strokePath (cable, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    g.setColour (juce::Colours::white.withAlpha (0.08f));
-    g.strokePath (cable, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
-                  juce::AffineTransform::translation (0.0f, -1.0f));
-
-    // The plugs.
-    for (auto p : { from, to })
-    {
-        g.setColour (juce::Colour (0xff3a3c42));
-        g.fillRoundedRectangle (juce::Rectangle<float> (12.0f, 9.0f).withCentre (p), 2.0f);
-    }
+    auto overview = std::make_unique<ChainOverview>();
+    overview->setTiles (chainStack.getTiles());
+    overview->onOpen = [this] (int tile) { selectBlock (tile); };
+    overview->onMenu = [this] (int tile, juce::Rectangle<int> screenArea) { showPedalMenu (tile, screenArea); };
+    detailPanel = std::move (overview);
+    addAndMakeVisible (*detailPanel);
 }
 
 void MainComponent::layoutNeighbours (juce::Rectangle<int>& area)
@@ -317,7 +295,7 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
 
-    auto header = area.removeFromTop (headerHeight).reduced (16, 12);
+    auto header = area.removeFromTop (getHeaderHeight()).reduced (16, 12);
 
     // Top row: title, presets, tuner and settings. Bottom row: device status.
     auto topRow = header.removeFromTop (32);
@@ -337,9 +315,8 @@ void MainComponent::resized()
     title.setBounds (topRow.removeFromLeft (180));
     presetBar.setBounds (topRow.removeFromRight (juce::jmin (400, topRow.getWidth())));
 
-    header.removeFromTop (12);
-    statusLine.setBounds (header.removeFromLeft (header.getWidth() * 2 / 5));
-    detailLine.setBounds (header);
+    header.removeFromTop (8);
+    statusLine.setBounds (header);
 
     // Left: input level, the stack, output level.
     auto stack = area.removeFromLeft (stackWidth).reduced (14, 12);
@@ -481,6 +458,9 @@ void MainComponent::rebuildChain (int fallbackIndex)
 
     chainStack.setTiles (tiles);
 
+    if (auto* overview = dynamic_cast<ChainOverview*> (detailPanel.get()))
+        overview->setTiles (tiles);
+
     if (showingTuner || showingPractice)
     {
         chainStack.setSelected (-1);
@@ -525,7 +505,7 @@ void MainComponent::selectBlock (int index)
     if (! juce::isPositiveAndBelow (index, (int) panelMakers.size()))
         return;
 
-    // The amp's controls are always showing, so selecting it just clears the middle.
+    // The amp's controls are always showing, so selecting it shows the whole chain in the middle.
     if (chainStack.getTiles()[(size_t) index].kind == ChainStack::Kind::amp)
     {
         chainStack.setSelected (index);
@@ -535,6 +515,7 @@ void MainComponent::selectBlock (int index)
         practiceButton.setToggleState (false, juce::dontSendNotification);
         detailPanel.reset();
         panelPedal.reset();
+        showChainOverview();
         resized();
         repaint();
         return;
@@ -669,36 +650,18 @@ void MainComponent::showPedalMenu (int tileIndex, juce::Rectangle<int> screenAre
         return;
 
     const auto tile = chainStack.getTiles()[(size_t) tileIndex];
-    const auto otherSide = tile.side == Pedalboard::beforeAmp ? Pedalboard::afterAmp : Pedalboard::beforeAmp;
-    const bool otherSideFull = (int) engine.getChain().getBoard().getPedals (otherSide).size() >= Pedalboard::maxPedalsPerSide;
 
+    // Moving is done by dragging, so the menu only removes.
     juce::PopupMenu menu;
-    menu.addItem (1, tile.side == Pedalboard::beforeAmp ? "Move after the amp" : "Move before the amp", ! otherSideFull);
-    menu.addSeparator();
-    menu.addItem (2, "Remove " + tile.name);
+    menu.addItem (1, "Remove " + tile.name);
 
     // The menu opens beside the pedal that was right-clicked.
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea)
                                                   .withPreferredPopupDirection (juce::PopupMenu::Options::PopupDirection::downwards),
-                        [safe = juce::Component::SafePointer<MainComponent> (this), tile, otherSide] (int result)
+                        [safe = juce::Component::SafePointer<MainComponent> (this), tile] (int result)
                         {
-                            if (safe == nullptr)
-                                return;
-
-                            auto& board = safe->engine.getChain().getBoard();
-
-                            if (result == 1)
-                            {
-                                // Before the amp it goes last; after the amp it goes first, so it stays next to the amp.
-                                const auto toIndex = otherSide == Pedalboard::beforeAmp ? (int) board.getPedals (otherSide).size() : 0;
-
-                                if (board.move (tile.side, tile.index, otherSide, toIndex))
-                                    safe->rebuildChain();
-                            }
-                            else if (result == 2)
-                            {
+                            if (safe != nullptr && result == 1)
                                 safe->removePedal (tile.side, tile.index);
-                            }
                         });
 }
 
@@ -821,32 +784,26 @@ void MainComponent::refreshStatus()
     ticksSinceStatusRefresh = 0;
     const auto status = engine.getStatus();
 
+    // The header only speaks up when something needs fixing. The device details are in Audio settings.
+    juce::String problem;
+
     if (! status.running)
+        problem = status.message.isNotEmpty() ? status.message : "No audio device. Open Audio settings to choose one.";
+    else if (! engine.isInputChannelAvailable())
+        problem = status.deviceName + ": no guitar input selected. Open Audio settings.";
+
+    statusLine.setText (problem, juce::dontSendNotification);
+
+    if (problem.isNotEmpty() != statusLine.isVisible())
     {
-        statusLine.setColour (juce::Label::textColourId, warning);
-        statusLine.setText (status.message.isNotEmpty() ? status.message
-                                                        : "No audio device. Open Audio settings to choose one.",
-                            juce::dontSendNotification);
-        detailLine.setText ({}, juce::dontSendNotification);
-        return;
+        statusLine.setVisible (problem.isNotEmpty());
+        resized();
     }
+}
 
-    const auto inputs = engine.getInputChannelNames();
-    const auto channel = engine.getInputChannel();
-    const bool inputOk = engine.isInputChannelAvailable();
-
-    statusLine.setColour (juce::Label::textColourId, inputOk ? good : warning);
-    statusLine.setText (status.deviceName + " (" + status.deviceType + ")  |  "
-                            + (inputOk ? "guitar on input " + juce::String (channel + 1) + ": " + inputs[channel]
-                                       : juce::String ("no guitar input selected. Open Audio settings.")),
-                        juce::dontSendNotification);
-
-    detailLine.setText (juce::String (status.sampleRate / 1000.0, 1) + " kHz  |  buffer "
-                            + juce::String (status.bufferSize) + "  |  latency "
-                            + juce::String (status.roundTripMs, 1) + " ms round trip (driver reported)  |  CPU "
-                            + juce::String (juce::roundToInt (status.cpuUsage * 100.0)) + "%  |  dropouts "
-                            + juce::String (juce::jmax (0, status.xruns)),
-                        juce::dontSendNotification);
+int MainComponent::getHeaderHeight() const
+{
+    return statusLine.isVisible() ? 88 : 56;
 }
 
 //==============================================================================

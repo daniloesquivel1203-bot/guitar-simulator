@@ -16,9 +16,9 @@ Windows. The More button next to the preset list opens that folder.
 
 1. Turn off Direct Monitor on your interface, or you will hear the dry guitar
    on top of the app's output.
-2. Start the app with your headphone volume low. The status line at the top
-   shows the device in use. On Windows the app picks an ASIO driver on first
-   launch if one is installed.
+2. Start the app with your headphone volume low. On Windows the app picks an
+   ASIO driver on first launch if one is installed. A warning line appears at
+   the top only when there is no audio device or no guitar input to use.
 3. Click **Audio settings** to change the device, sample rate or buffer size,
    and set **Guitar input** to the channel the guitar is plugged into. Which
    number that is depends on the interface. Pick the one that makes the input
@@ -33,7 +33,9 @@ Windows. The More button next to the preset list opens that folder.
    brick up or down to move it, including to the other side of the amp.
    The blocks just before and after the open pedal stand beside it, patched in
    with cables; click one to open it. Right-click a pedal, in the stack or
-   beside the open one, to move or remove it.
+   beside the open one, to remove it. Click the amp brick to see the whole
+   chain in the middle, patched together in order; click a pedal there to open
+   it, or its footswitch to switch it on or off.
 6. The amp and cabinet are always on the right. The head's display picks a
    voicing; the cabinet's display picks a cabinet or loads your own impulse
    response file (WAV or AIFF) for a more realistic speaker sound. With

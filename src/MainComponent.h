@@ -4,6 +4,7 @@
 #include "engine/CustomPedalLibrary.h"
 #include "engine/ToneHistory.h"
 #include "ui/AmpRig.h"
+#include "ui/ChainOverview.h"
 #include "ui/ChainStack.h"
 #include "ui/CustomPedalPanel.h"
 #include "ui/PatchPanel.h"
@@ -36,6 +37,7 @@ private:
     void timerCallback() override;
 
     void refreshStatus();
+    int getHeaderHeight() const;
     void showAudioSettings();
     static void styleGainSlider (juce::Slider&, double minDb, double maxDb, double valueDb);
     void paintCap (juce::Graphics&, juce::Rectangle<int>) const;
@@ -45,7 +47,6 @@ private:
 
     juce::Label title { {}, "Guitar Simulator" };
     juce::Label statusLine;
-    juce::Label detailLine;
     PresetBar presetBar;
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" };
     /** A button that also offers a menu on right-click, instead of clicking. */
@@ -97,7 +98,7 @@ private:
 
     /** Shows the blocks before and after the open pedal beside it, when it is a stompbox. */
     void layoutNeighbours (juce::Rectangle<int>& area);
-    void paintCable (juce::Graphics&, juce::Point<float> from, juce::Point<float> to) const;
+    void showChainOverview();
     void removePedal (Pedalboard::Side, int index);
 
     /** One per brick in the chain stack, in signal order. Empty for the amp and add bricks. */

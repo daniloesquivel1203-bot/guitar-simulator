@@ -1,9 +1,6 @@
 #pragma once
 
-#include "ChainStack.h"
-#include "PedalLook.h"
-
-#include <juce_gui_basics/juce_gui_basics.h>
+#include "MiniPedal.h"
 
 #include <functional>
 
@@ -45,14 +42,12 @@ public:
     /** Where a cable plugs into the side facing the open pedal, in this component. */
     juce::Point<float> getJack() const
     {
-        const auto box = getPedalBounds();
-        return { placement == Placement::left ? box.getRight() + 4.0f : box.getX() - 4.0f, box.getY() + box.getHeight() * 0.3f };
+        return mini_pedal::getJack (getPedalBounds(), tile.kind, placement == Placement::right);
     }
 
     void paint (juce::Graphics& g) override
     {
         const auto box = getPedalBounds();
-        const bool on = tile.enabled != nullptr && tile.enabled->isOn();
 
         g.setColour (juce::Colours::white.withAlpha (hovering ? 0.6f : 0.35f));
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
@@ -60,21 +55,10 @@ public:
                     juce::Rectangle<float> (0.0f, box.getY() - labelHeight, (float) getWidth(), (float) labelHeight - 4.0f),
                     juce::Justification::centred);
 
-        // The jack on the side facing the open pedal.
-        {
-            const juce::Rectangle<float> jack (placement == Placement::left ? box.getRight() - 3.0f : box.getX() - 8.0f,
-                                               box.getY() + box.getHeight() * 0.3f - 9.0f, 11.0f, 18.0f);
-            g.setColour (juce::Colour (0xff7a7a7a));
-            g.fillRoundedRectangle (jack, 2.0f);
-        }
+        mini_pedal::paintJack (g, box, tile.kind, placement == Placement::right);
 
         g.setOpacity (hovering ? 0.95f : 0.7f);
-
-        if (tile.kind == ChainStack::Kind::amp)
-            paintAmp (g, box);
-        else
-            paintPedal (g, box, on);
-
+        mini_pedal::paint (g, box, tile);
         g.setOpacity (1.0f);
     }
 
@@ -100,60 +84,6 @@ public:
 
 private:
     static constexpr int labelHeight = 22;
-
-    void paintPedal (juce::Graphics& g, juce::Rectangle<float> box, bool on) const
-    {
-        auto face = tile.colour;
-
-        if (! on)
-            face = face.withMultipliedSaturation (0.45f).withMultipliedBrightness (0.6f);
-
-        pedal_look::paintEnclosure (g, box, face, 10.0f);
-        const auto ink = pedal_look::inkFor (face);
-
-        // Two knobs across the top.
-        const auto knob = box.getWidth() * 0.22f;
-        for (auto fx : { 0.3f, 0.7f })
-        {
-            const auto c = juce::Point<float> (box.getX() + box.getWidth() * fx, box.getY() + box.getHeight() * 0.16f);
-            g.setColour (juce::Colour (0xff1b1b1e));
-            g.fillEllipse (juce::Rectangle<float> (knob, knob).withCentre (c));
-            g.setColour (juce::Colours::white.withAlpha (0.8f));
-            g.drawLine (c.x, c.y, c.x, c.y - knob * 0.4f, 1.5f);
-        }
-
-        auto text = box.reduced (8.0f, 0.0f).withTrimmedTop (box.getHeight() * 0.3f).withHeight (box.getHeight() * 0.3f);
-        g.setColour (ink);
-        g.setFont (juce::FontOptions (juce::jlimit (11.0f, 16.0f, box.getWidth() / 7.5f), juce::Font::bold | juce::Font::italic));
-        g.drawFittedText (tile.name.toUpperCase(), text.removeFromTop (text.getHeight() * 0.65f).toNearestInt(),
-                          juce::Justification::centredBottom, 2, 0.7f);
-        g.setColour (ink.withAlpha (0.6f));
-        g.setFont (juce::FontOptions (9.0f));
-        g.drawFittedText (tile.detail.toUpperCase(), text.toNearestInt(), juce::Justification::centredTop, 1, 0.7f);
-
-        pedal_look::paintLed (g, { box.getCentreX(), box.getY() + box.getHeight() * 0.68f }, 7.0f, on);
-        const auto foot = box.getWidth() * 0.34f;
-        pedal_look::paintFootswitch (g, juce::Rectangle<float> (foot, foot).withCentre ({ box.getCentreX(), box.getY() + box.getHeight() * 0.84f }), false);
-    }
-
-    void paintAmp (juce::Graphics& g, juce::Rectangle<float> box) const
-    {
-        box = box.withHeight (juce::jmin (box.getHeight(), box.getWidth() * 1.1f));
-        pedal_look::paintTolex (g, box, 6.0f);
-        g.setColour (pedal_look::AmpKnobs::gold.withAlpha (0.7f));
-        g.drawRoundedRectangle (box.reduced (1.0f), 6.0f, 1.5f);
-
-        auto inner = box.reduced (8.0f);
-        auto label = inner.removeFromTop (34.0f);
-        g.setColour (pedal_look::AmpKnobs::gold);
-        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-        g.drawFittedText ("AMP & CAB", label.removeFromTop (18.0f).toNearestInt(), juce::Justification::centred, 1, 0.7f);
-        g.setColour (pedal_look::AmpKnobs::gold.withAlpha (0.7f));
-        g.setFont (juce::FontOptions (9.0f));
-        g.drawFittedText (tile.detail.upToFirstOccurrenceOf (" | ", false, false), label.toNearestInt(), juce::Justification::centredTop, 1, 0.7f);
-        inner.removeFromTop (4.0f);
-        pedal_look::paintGrill (g, inner, 1);
-    }
 
     Placement placement;
     ChainStack::Tile tile { ChainStack::Kind::pedal, Pedalboard::beforeAmp, -1, {}, {}, {}, nullptr };
