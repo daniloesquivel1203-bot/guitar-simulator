@@ -1,5 +1,6 @@
 #include "engine/TabArrangement.h"
 #include "engine/TabFile.h"
+#include "engine/JamTrack.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -384,4 +385,52 @@ TEST_CASE ("A song becomes band notes with drums, ties, muted parts and speed", 
         CHECK (e.instrument == jam::Instrument::drums);
 
     CHECK_THAT (arrangement.tempoMap[0].bpm, WithinAbs (60.0, 1e-9));
+}
+
+TEST_CASE ("The band plays a song once at the song's own tempo and stops at the end", "[tab]")
+{
+    constexpr double rate = 48000.0;
+    constexpr int block = 256;
+
+    const auto song = tab::parseGpif (gpif).song;
+    const auto order = tab::playOrder (song);
+
+    JamTrack band;
+    band.prepare (rate);
+    band.setArrangement (tab::arrangeSong (song, order, {}));
+    band.start (false);
+
+    std::vector<float> left (block), right (block);
+    float peak = 0.0f;
+    bool finite = true;
+
+    // The song lasts 10 s (16 beats at 120, then 3 at 90). The metronome
+    // tempo passed in is ignored because the song has its own tempo map.
+    auto render = [&] (double seconds)
+    {
+        for (int done = 0; done < (int) (seconds * rate); done += block)
+        {
+            std::fill (left.begin(), left.end(), 0.0f);
+            std::fill (right.begin(), right.end(), 0.0f);
+            band.process (left.data(), right.data(), block, 200.0);
+
+            for (int i = 0; i < block; ++i)
+            {
+                finite = finite && std::isfinite (left[(size_t) i]);
+                peak = juce::jmax (peak, std::abs (left[(size_t) i]));
+            }
+        }
+    };
+
+    render (4.0);
+    CHECK_THAT (band.getPositionBeats(), WithinAbs (8.0, 0.1));   // 120 BPM, not 200
+    CHECK (band.isPlaying());
+
+    render (7.0);
+    CHECK_FALSE (band.isPlaying());
+    CHECK_THAT (band.getPositionBeats(), WithinAbs (19.0, 1e-6));
+    CHECK (finite);
+    CHECK (peak > 0.01f);
+    CHECK (peak < 1.0f);
+    band.collectGarbage();
 }

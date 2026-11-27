@@ -8,7 +8,7 @@
 namespace
 {
 constexpr int labelWidth = 34;
-constexpr float topMargin = 46.0f;    // room for bar numbers and section names
+constexpr float topMargin = 64.0f;    // room for section names, palm mutes and bar numbers
 constexpr float stemLength = 18.0f;
 constexpr float stemGap = 10.0f;
 
@@ -151,7 +151,7 @@ void TabView::paint (juce::Graphics& g)
         {
             g.setColour (Theme::warning);
             g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-            g.drawText (mb.section, juce::Rectangle<float> (barX + 3.0f, staffTop - 40.0f, 200.0f, 18.0f),
+            g.drawText (mb.section, juce::Rectangle<float> (barX + 3.0f, staffTop - 60.0f, 200.0f, 18.0f),
                         juce::Justification::centredLeft);
         }
 
