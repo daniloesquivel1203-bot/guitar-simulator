@@ -72,6 +72,7 @@ private:
     void showSlotMenu (juce::Component& target);
     juce::TextButton tunerButton { "Tuner" };
     juce::TextButton practiceButton { "Practice" };
+    juce::TextButton jamButton { "Jam" };
     juce::TextButton settingsButton { "Audio settings" };
 
     juce::Label inputHeading { {}, "IN" };
@@ -90,6 +91,7 @@ private:
     void selectAmp();
     void showTuner();
     void showPractice();
+    void showJam();
     void showAddMenu (juce::Rectangle<int> screenArea);
     void addFromTray (const juce::String& description, Pedalboard::Side, int index);
     void addFromTray (const juce::String& description);
@@ -120,6 +122,7 @@ private:
     Parameter* panelBlock = nullptr;
     bool showingTuner = false;
     bool showingPractice = false;
+    bool showingJam = false;
     bool widePanel = false;   // a Custom or Patch pedal's editor, which needs the amp's space too
     std::unique_ptr<TonePanel> detailPanel;
 

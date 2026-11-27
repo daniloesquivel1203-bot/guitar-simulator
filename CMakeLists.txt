@@ -106,6 +106,7 @@ target_sources(GuitarSimulator
         src/ui/PatchPanel.cpp
         src/ui/PedalLook.cpp
         src/ui/PedalTray.cpp
+        src/ui/JamPanel.cpp
         src/ui/LooperLayersView.cpp
         src/ui/PracticePanel.cpp
         src/ui/PresetBar.cpp
