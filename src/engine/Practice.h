@@ -1,5 +1,7 @@
 #pragma once
 
+#include "JamTrack.h"
+
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include <array>
@@ -36,6 +38,9 @@ public:
     float getVolumeDb() const noexcept      { return volumeDb.load(); }
     bool getAccentFirstBeat() const noexcept   { return accent.load(); }
 
+    /** If running, starts again from the first beat of the bar at the next block. */
+    void restartBar() noexcept              { restartRequested.store (true); }
+
     /** The beat being played, from 0, or -1 when stopped. */
     int getCurrentBeat() const noexcept     { return currentBeat.load(); }
 
@@ -51,6 +56,7 @@ private:
     std::atomic<float> volumeDb { -12.0f };
     std::atomic<bool> accent { true };
     std::atomic<int> currentBeat { -1 };
+    std::atomic<bool> restartRequested { false };
 
     double sampleRate = 48000.0;
     bool wasRunning = false;
@@ -305,10 +311,10 @@ private:
     std::vector<float> silence = std::vector<float> (512, 0.0f);
 };
 
-/** The practice tools: metronome, looper and take recorder, applied to the
-    output of the signal chain. The looper and the recorder hear the processed
-    guitar, and the recorder also hears the loop. The metronome is only heard,
-    never recorded or looped. */
+/** The practice tools: metronome, looper, jam track and take recorder, applied
+    to the output of the signal chain. The looper hears only the processed
+    guitar. The recorder hears that, the loop and the jam track. The metronome
+    is only heard, never recorded or looped. */
 class PracticeTools
 {
 public:
@@ -317,6 +323,7 @@ public:
     Metronome& getMetronome() noexcept       { return metronome; }
     Looper& getLooper() noexcept             { return looper; }
     TakeRecorder& getRecorder() noexcept     { return recorder; }
+    JamTrack& getJamTrack() noexcept         { return jamTrack; }
 
     /** `dry` is the raw guitar input (may be null). `left` and `right` hold the
         chain's output on entry and the final output on return. With `muted`
@@ -327,4 +334,5 @@ private:
     Metronome metronome;
     Looper looper;
     TakeRecorder recorder;
+    JamTrack jamTrack;
 };

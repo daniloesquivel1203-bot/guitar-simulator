@@ -77,6 +77,10 @@ target_sources(GuitarSimulator
         src/engine/AudioEngine.cpp
         src/engine/Cabinet.cpp
         src/engine/CustomPedalLibrary.cpp
+        src/engine/JamArranger.cpp
+        src/engine/JamSynths.cpp
+        src/engine/JamTheory.cpp
+        src/engine/JamTrack.cpp
         src/engine/Pedalboard.cpp
         src/engine/Practice.cpp
         src/engine/Presets.cpp
@@ -154,6 +158,10 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/AmpModel.cpp
             src/engine/Cabinet.cpp
             src/engine/CustomPedalLibrary.cpp
+            src/engine/JamArranger.cpp
+            src/engine/JamSynths.cpp
+            src/engine/JamTheory.cpp
+            src/engine/JamTrack.cpp
             src/engine/Pedalboard.cpp
             src/engine/Practice.cpp
             src/engine/Presets.cpp
@@ -180,6 +188,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/PatchPedalTests.cpp
             tests/EffectTests.cpp
             tests/InputRoutingTests.cpp
+            tests/JamTrackTests.cpp
             tests/PedalLibraryTests.cpp
             tests/PedalboardTests.cpp
             tests/PerformanceTests.cpp
