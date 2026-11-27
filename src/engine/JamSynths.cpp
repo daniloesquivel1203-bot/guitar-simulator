@@ -190,6 +190,9 @@ void DrumKit::render (float* left, float* right, int numSamples) noexcept
     const auto stickLow = onePole (sampleRate, 600.0);
     const auto stickHigh = onePole (sampleRate, 3000.0);
 
+    // The square waves are rich in harmonics; this keeps the cymbals from fizzing.
+    const auto cymbalLow = onePole (sampleRate, 9000.0);
+
     const auto sweep = [this] (Piece& p) noexcept
     {
         const auto s = fastSin (p.phase);
@@ -242,7 +245,8 @@ void DrumKit::render (float* left, float* right, int numSamples) noexcept
                 const auto raw = metal (hatPhases.data(), ratios, 2400.0) * (closed.level + open.level + pedal.level)
                                  + n * (closed.noiseLevel + open.noiseLevel + pedal.noiseLevel);
                 hatHigh += hatHighCoeff * (raw - hatHigh);
-                addPanned (left, right, i, (raw - hatHigh) * 0.9f, 0.35f);
+                hatLow += cymbalLow * ((raw - hatHigh) - hatLow);
+                addPanned (left, right, i, hatLow * 0.6f, 0.35f);
 
                 for (auto* p : { &closed, &open, &pedal })
                     if (p->active)
@@ -259,7 +263,8 @@ void DrumKit::render (float* left, float* right, int numSamples) noexcept
                 const auto raw = metal (ridePhases.data(), ratios, 1300.0) * (ride.level + bell.level)
                                  + n * (ride.noiseLevel + bell.noiseLevel);
                 rideHigh += rideHighCoeff * (raw - rideHigh);
-                auto sample = raw - rideHigh;
+                rideLow += cymbalLow * ((raw - rideHigh) - rideLow);
+                auto sample = rideLow * 0.8f;
 
                 if (bell.active)
                 {
@@ -280,7 +285,8 @@ void DrumKit::render (float* left, float* right, int numSamples) noexcept
         {
             const auto raw = metal (crashPhases.data(), ratios, 1700.0) * p.level + n * p.noiseLevel;
             crashHigh += crashHighCoeff * (raw - crashHigh);
-            addPanned (left, right, i, (raw - crashHigh) * 0.9f, -0.2f);
+            crashLow += cymbalLow * ((raw - crashHigh) - crashLow);
+            addPanned (left, right, i, crashLow * 0.75f, -0.2f);
             fade (p);
         }
 
@@ -385,7 +391,7 @@ void Bass::render (float* out, int numSamples) noexcept
             if (! v.releasing && --v.samplesLeft <= 0)
                 v.releasing = true;
 
-            out[i] += v2 * v.env * v.velocity * 0.6f;
+            out[i] += v2 * v.env * v.velocity * (upright ? 0.4f : 0.6f);
 
             if (v.releasing && v.env < silence)
             {
@@ -506,7 +512,7 @@ void Guitar::render (float* out, int numSamples) noexcept
     const auto postCoeff = onePole (sampleRate, drive > 0.0f ? 3200.0 : 6500.0);
     const auto dcCoeff = decayFor (sampleRate, 0.02);
     const auto gain = 1.0f + drive * 30.0f;
-    const auto makeUp = drive > 0.0f ? 0.32f / std::tanh (juce::jmin (gain * 0.3f, 3.0f)) : 1.0f;
+    const auto makeUp = drive > 0.0f ? 0.42f / std::tanh (juce::jmin (gain * 0.3f, 3.0f)) : 1.0f;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -551,7 +557,7 @@ void Guitar::render (float* out, int numSamples) noexcept
             }
         }
 
-        auto x = sum * 0.3f;
+        auto x = sum * 0.7f;
 
         if (drive > 0.0f)
         {

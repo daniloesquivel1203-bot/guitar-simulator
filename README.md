@@ -143,6 +143,30 @@ button shows that something is still on.
   without the click), and a `(dry)` file with the plain guitar exactly as it
   came in, so it can be played back through a different sound later.
 
+## Jam tracks
+
+Click **Jam** at the top for a backing band to play along with. Everything is
+made in the app, so nothing is downloaded.
+
+- **Style:** rock, hard rock, blues shuffle, jazz swing, funk, pop, country,
+  reggae or ballad. The style decides the drum beat, the bass line and how
+  the chords are played. Picking one also sets a typical tempo and
+  progression for it (your own chord edits are kept).
+- **Key and chords:** choose the key's home note and major or minor, then a
+  common progression. Click any chord in the chart to swap it for another
+  chord that fits the key (they are listed with their Roman numerals), any
+  other chord, change how long it lasts, or add and remove chords. Changing
+  the key moves the whole progression.
+- **Play:** with **Count in** ticked the band starts after four clicks. The
+  chart lights up the chord being played, and the line under it shows the
+  chord's notes, the next chord, and scales that fit the key.
+- **Mix:** drums, bass, rhythm guitar, piano and organ each have an on/off
+  switch and a level, and **Band** sets the whole band against your guitar.
+- The tempo is the metronome's, so the click, the band and synced delays
+  always agree. The band is heard and goes into recorded takes, but not into
+  the looper. It keeps playing in other panels; a dot on the Jam button
+  shows it.
+
 ## Build on Windows
 
 ### One-time setup
