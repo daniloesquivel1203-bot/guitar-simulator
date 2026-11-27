@@ -60,6 +60,7 @@ private:
     std::array<Piece, numDrums> pieces {};
     std::array<double, 6> hatPhases {}, ridePhases {}, crashPhases {};
     float hatHigh = 0.0f, rideHigh = 0.0f, crashHigh = 0.0f, snareHigh = 0.0f;
+    float hatLow = 0.0f, rideLow = 0.0f, crashLow = 0.0f;
     float stickBand1 = 0.0f, stickBand2 = 0.0f;
 };
 

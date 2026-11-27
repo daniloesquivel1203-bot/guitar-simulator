@@ -388,3 +388,116 @@ TEST_CASE ("the band costs little processing time")
     CHECK (seconds < 2.0);
     WARN ("20 s of the full band took " << seconds << " s");
 }
+
+//==============================================================================
+// Not run by default. Writes a short WAV of every style to the folder in
+// JAM_DEMO_DIR, to listen to the band:  GuitarSimulatorTests "[.demo]"
+TEST_CASE ("render a demo of each style", "[.demo]")
+{
+    const auto folder = juce::File (juce::SystemStats::getEnvironmentVariable ("JAM_DEMO_DIR", juce::File::getCurrentWorkingDirectory().getFullPathName()));
+    folder.createDirectory();
+
+    int number = 1;
+
+    for (const auto& style : getStyles())
+    {
+        JamTrack track;
+        track.prepare (rate);
+        track.setArrangement (arrange (preset (style.suggestedProgression).slots, { style.suggestedMode == Mode::minor ? 9 : 4, style.suggestedMode }, style.style));
+        // JAM_DEMO_SOLO=n plays only instrument n (0 drums ... 4 organ).
+        const auto solo = juce::SystemStats::getEnvironmentVariable ("JAM_DEMO_SOLO", {});
+
+        if (solo.isNotEmpty())
+            for (int i = 0; i < numInstruments; ++i)
+                track.setOn ((Instrument) i, i == solo.getIntValue());
+
+        track.start (false);
+
+        const auto beats = juce::jmax (16.0, track.getLengthBeats());
+        const auto seconds = juce::jmin (24.0, beats * 60.0 / style.suggestedBpm);
+        const auto r = run (track, seconds, style.suggestedBpm);
+
+        juce::AudioBuffer<float> buffer (2, (int) r.left.size());
+        buffer.copyFrom (0, 0, r.left.data(), (int) r.left.size());
+        buffer.copyFrom (1, 0, r.right.data(), (int) r.right.size());
+
+        const auto name = juce::String (number++).paddedLeft ('0', 2) + "-" + style.name.toLowerCase().replace (" ", "-") + ".wav";
+        auto file = folder.getChildFile (name);
+        file.deleteFile();
+
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (file);
+        auto writer = wav.createWriterFor (stream, juce::AudioFormatWriterOptions().withSampleRate (rate).withNumChannels (2).withBitsPerSample (24));
+        REQUIRE (writer != nullptr);
+        writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+    }
+}
+
+//==============================================================================
+namespace
+{
+/** The strongest pitch in `signal` between 35 and 1000 Hz, by autocorrelation. */
+double pitchOf (const std::vector<float>& signal)
+{
+    const auto minLag = (int) (rate / 1000.0), maxLag = (int) (rate / 35.0);
+    const auto n = (int) signal.size() - maxLag - 2;
+    std::vector<double> scores ((size_t) maxLag + 2, 0.0);
+
+    for (int lag = minLag; lag <= maxLag + 1; ++lag)
+        for (int i = 0; i < n; ++i)
+            scores[(size_t) lag] += signal[(size_t) i] * signal[(size_t) (i + lag)];
+
+    auto best = minLag;
+
+    for (int lag = minLag; lag <= maxLag; ++lag)
+        if (scores[(size_t) lag] > scores[(size_t) best])
+            best = lag;
+
+    // Parabolic interpolation around the peak.
+    const auto a = scores[(size_t) best - 1], b = scores[(size_t) best], c = scores[(size_t) best + 1];
+    const auto shift = 0.5 * (a - c) / (a - 2.0 * b + c);
+    return rate / (best + shift);
+}
+
+double centsBetween (double hz, double reference)
+{
+    return 1200.0 * std::log2 (hz / reference);
+}
+}
+
+TEST_CASE ("the guitar and bass play in tune")
+{
+    for (auto note : { 40, 45, 52, 57, 64 })
+    {
+        INFO ("note " << note);
+        synth::Guitar guitar;
+        guitar.prepare (rate);
+
+        NoteEvent e;
+        e.instrument = Instrument::guitar;
+        e.numNotes = 1;
+        e.notes[0] = (std::int8_t) note;
+        e.velocity = 0.8f;
+        guitar.play (e, (int) rate);
+
+        std::vector<float> out ((size_t) rate / 2, 0.0f);
+        guitar.render (out.data(), (int) out.size());
+        out.erase (out.begin(), out.begin() + 4800);   // past the pick
+
+        CHECK (std::abs (centsBetween (pitchOf (out), synth::midiToHz (note))) < 8.0);
+    }
+
+    for (auto note : { 28, 33, 40 })
+    {
+        INFO ("bass note " << note);
+        synth::Bass bass;
+        bass.prepare (rate);
+        bass.noteOn (note, 0.8f, (int) rate);
+
+        std::vector<float> out ((size_t) rate / 2, 0.0f);
+        bass.render (out.data(), (int) out.size());
+        out.erase (out.begin(), out.begin() + 4800);
+
+        CHECK (std::abs (centsBetween (pitchOf (out), synth::midiToHz (note))) < 8.0);
+    }
+}

@@ -20,7 +20,12 @@ public:
     /** Restores the band's mix from the settings file. Call once at start-up. */
     static void applySettings (AudioEngine&);
 
-    static bool isBusy (AudioEngine& engine)   { return engine.getPractice().getJamTrack().isPlaying(); }
+    /** True while a jam (not a song) is playing. */
+    static bool isBusy (AudioEngine& engine)
+    {
+        auto& track = engine.getPractice().getJamTrack();
+        return track.isPlaying() && track.isLooping();
+    }
 
 private:
     /** The progression drawn as a chord chart, four bars to a row. Click a

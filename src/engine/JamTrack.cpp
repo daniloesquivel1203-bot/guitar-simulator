@@ -82,6 +82,7 @@ void JamTrack::setArrangement (jam::Arrangement arrangement)
 {
     collectGarbage();
     lengthBeats.store (arrangement.lengthBeats);
+    looping.store (arrangement.loops);
     delete pending.exchange (new jam::Arrangement (std::move (arrangement)));
 }
 
