@@ -3,7 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /** The app's colours and the flat look of its knobs, sliders, buttons and lists. */
-class Theme final : public juce::LookAndFeel_V4
+class Theme : public juce::LookAndFeel_V4
 {
 public:
     static inline const juce::Colour background { 0xff22282d };

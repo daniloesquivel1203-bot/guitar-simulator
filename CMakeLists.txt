@@ -95,10 +95,13 @@ target_sources(GuitarSimulator
         src/engine/effects/Pitch.cpp
         src/engine/effects/Reverbs.cpp
         src/engine/effects/TimeEffects.cpp
+        src/ui/AmpRig.cpp
         src/ui/AudioSettingsPanel.cpp
         src/ui/BlockEditorParts.cpp
         src/ui/CustomPedalPanel.cpp
         src/ui/PatchPanel.cpp
+        src/ui/PedalLook.cpp
+        src/ui/PedalTray.cpp
         src/ui/LooperLayersView.cpp
         src/ui/PracticePanel.cpp
         src/ui/PresetBar.cpp

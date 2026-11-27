@@ -7,6 +7,7 @@
 #include "../engine/effects/Effect.h"
 #include "../engine/effects/TempoSync.h"
 #include "ParameterControls.h"
+#include "PedalLook.h"
 
 /** A titled, rounded box that the amp and cabinet controls sit in. */
 class TonePanel : public juce::Component
@@ -39,56 +40,6 @@ private:
     bool dimmed = false;
 };
 
-/** The amp block. The drop-down picks one of the built-in voicings or a
-    loaded capture (.nam file), and the knobs below change to match. */
-class AmpPanel final : public TonePanel
-{
-public:
-    AmpPanel (AmpModel&, AmpCapture&, Cabinet&);
-    void resized() override;
-    void refreshPower() override   { power.refresh(); }
-
-private:
-    enum ItemIds { firstVoicingId = 1, captureId = 100, loadCaptureId = 200, removeCaptureId = 300 };
-
-    void refreshChoices();
-    void choiceChanged();
-    void chooseCaptureFile();
-    void showCaptureDetails();
-
-    AmpModel& amp;
-    AmpCapture& capture;
-    Cabinet& cabinet;
-    ParameterToggle power;
-    juce::ComboBox choice;
-    ParameterKnob gain, bass, mid, treble, presence, master;
-    ParameterKnob captureInput, captureBass, captureMid, captureTreble, captureOutput;
-    juce::Label message;
-    std::unique_ptr<juce::FileChooser> fileChooser;
-};
-
-class CabinetPanel final : public TonePanel
-{
-public:
-    explicit CabinetPanel (Cabinet&);
-    void resized() override;
-    void refreshPower() override   { power.refresh(); }
-
-private:
-    enum ItemIds { firstBuiltInId = 1, loadedFileId = 100, loadFileId = 200 };
-
-    void refreshChoices();
-    void choiceChanged();
-    void chooseFile();
-
-    Cabinet& cabinet;
-    ParameterToggle power;
-    juce::ComboBox choice;
-    ParameterKnob lowCut, highCut;
-    juce::Label message;
-    std::unique_ptr<juce::FileChooser> fileChooser;
-};
-
 /** The tempo shared by the metronome and the delays' Sync setting. */
 struct SharedTempo
 {
@@ -96,8 +47,9 @@ struct SharedTempo
     std::function<void (double bpm)> set;
 };
 
-/** Controls for any pedal, built from the pedal's own list of parameters.
-    With `onRemove` set, a Remove button calls it.
+/** Any pedal, drawn as a stompbox: its knobs across the top, its name, and a
+    footswitch that switches it on and off. With `onRemove` set, a Remove
+    button calls it.
 
     Delays also get a Tap button. With Sync off, tapping sets the Time knob to
     the gap between taps. With Sync on, tapping sets the shared tempo (the
@@ -106,22 +58,46 @@ class EffectPanel final : public TonePanel,
                           private juce::Timer
 {
 public:
-    explicit EffectPanel (Effect&, std::function<void()> onRemove = {}, SharedTempo tempo = {});
+    EffectPanel (Effect&, juce::Colour face, const juce::String& category,
+                 std::function<void()> onRemove = {}, SharedTempo tempo = {});
+    ~EffectPanel() override;
+
+    void paint (juce::Graphics&) override;
     void resized() override;
-    void refreshPower() override   { power.refresh(); }
+    void refreshPower() override   { repaint(); }
+
+    /** The pedal's outline, sized for its controls and centred in the panel. */
+    juce::Rectangle<int> getEnclosure() const;
+
+    /** Where the input (left) and output (right) cables plug in, in this panel. */
+    juce::Point<float> getJack (bool input) const;
+
+    /** The narrowest panel the pedal still looks right in. */
+    int getComfortableWidth() const;
 
 private:
+    class Footswitch;
+
     void timerCallback() override;
     void tapped();
     void refreshTempoInfo();
 
+    int getEnclosureWidth() const;
+    int getColumns() const;
+    int getKnobRows() const;
+    bool hasExtras() const;
+
     Effect& effect;
+    juce::Colour face;
+    juce::String category;
     SharedTempo sharedTempo;
-    ParameterToggle power;
+    pedal_look::StompboxKnobs knobLook;
+    std::unique_ptr<Footswitch> footswitch;
     juce::TextButton removeButton { "Remove" };
     juce::OwnedArray<ParameterKnob> knobs;
     juce::OwnedArray<ParameterToggle> switches;
     juce::OwnedArray<ParameterChoice> choices;
+    bool lastOn = false;
 
     Parameter* tapTime = nullptr;
     Parameter* tempoSync = nullptr;

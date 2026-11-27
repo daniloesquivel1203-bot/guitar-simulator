@@ -3,18 +3,24 @@
 #include "engine/AudioEngine.h"
 #include "engine/CustomPedalLibrary.h"
 #include "engine/ToneHistory.h"
-#include "ui/ChainStrip.h"
+#include "ui/AmpRig.h"
+#include "ui/ChainOverview.h"
+#include "ui/ChainStack.h"
 #include "ui/CustomPedalPanel.h"
 #include "ui/PatchPanel.h"
 #include "ui/LevelMeter.h"
+#include "ui/NeighbourPedal.h"
+#include "ui/PedalTray.h"
 #include "ui/PresetBar.h"
 #include "ui/TonePanels.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
-/** Top-level content of the app window: status bar, input and output strips,
-    and the space where the pedalboard and amp will go. */
+/** Top-level content of the app window: the header, the pedal stack on the
+    left with the input and output levels, the selected pedal in the middle
+    above the pedal tray, and the amp and cabinet on the right. */
 class MainComponent final : public juce::Component,
+                            public juce::DragAndDropContainer,
                             private juce::ChangeListener,
                             private juce::Timer
 {
@@ -31,15 +37,16 @@ private:
     void timerCallback() override;
 
     void refreshStatus();
+    int getHeaderHeight() const;
     void showAudioSettings();
     static void styleGainSlider (juce::Slider&, double minDb, double maxDb, double valueDb);
+    void paintCap (juce::Graphics&, juce::Rectangle<int>) const;
 
     AudioEngine& engine;
     CustomPedalLibrary customPedals { engine.getPresets().getUserFolder().getSiblingFile ("Custom Pedals") };
 
     juce::Label title { {}, "Guitar Simulator" };
     juce::Label statusLine;
-    juce::Label detailLine;
     PresetBar presetBar;
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" };
     /** A button that also offers a menu on right-click, instead of clicking. */
@@ -67,33 +74,45 @@ private:
     juce::TextButton practiceButton { "Practice" };
     juce::TextButton settingsButton { "Audio settings" };
 
-    juce::Label inputHeading { {}, "INPUT" };
+    juce::Label inputHeading { {}, "IN" };
     LevelMeter inputMeter { true };
     juce::Slider inputGain;
 
-    juce::Label outputHeading { {}, "OUTPUT" };
+    juce::Label outputHeading { {}, "OUT" };
     LevelMeter outputMeter { false };
     juce::Slider outputGain;
     juce::ToggleButton muteButton { "Mute" };
 
-    /** Redraws the strip from the board. The selection stays on the same block
+    /** Redraws the stack from the board. The selection stays on the same block
         if it still exists, otherwise on the tile at `fallbackIndex`, otherwise the amp. */
     void rebuildChain (int fallbackIndex = -1);
     void selectBlock (int index);
     void selectAmp();
     void showTuner();
     void showPractice();
-    void showAddMenu (Pedalboard::Side, juce::Rectangle<int> screenArea);
-    void showPedalMenu (int tile);
+    void showAddMenu (juce::Rectangle<int> screenArea);
+    void addFromTray (const juce::String& description, Pedalboard::Side, int index);
+    void addFromTray (const juce::String& description);
+    bool isWidePanelShowing() const;
+    void showPedalMenu (int tile, juce::Rectangle<int> screenArea);
+
+    /** Shows the blocks before and after the open pedal beside it, when it is a stompbox. */
+    void layoutNeighbours (juce::Rectangle<int>& area);
+    void showChainOverview();
     void removePedal (Pedalboard::Side, int index);
 
-    /** One per tile in the chain strip, in signal order. Empty for + tiles. */
+    /** One per brick in the chain stack, in signal order. Empty for the amp and add bricks. */
     std::vector<std::function<std::unique_ptr<TonePanel>()>> panelMakers;
 
     /** Keeps the pedal behind the open panel alive, even after a preset has replaced it. */
     std::vector<std::shared_ptr<Pedal>> tilePedals;
     std::shared_ptr<Pedal> panelPedal;
-    ChainStrip chainStrip;
+    ChainStack chainStack;
+    PedalTray pedalTray;
+    AmpRig ampRig;
+    NeighbourPedal leftNeighbour { NeighbourPedal::Placement::left };
+    NeighbourPedal rightNeighbour { NeighbourPedal::Placement::right };
+    int leftNeighbourTile = -1, rightNeighbourTile = -1;
 
     /** Identify blocks across rebuilds by their on/off switch: the one that
         should be selected, and the one whose panel is showing. */
@@ -101,6 +120,7 @@ private:
     Parameter* panelBlock = nullptr;
     bool showingTuner = false;
     bool showingPractice = false;
+    bool widePanel = false;   // a Custom or Patch pedal's editor, which needs the amp's space too
     std::unique_ptr<TonePanel> detailPanel;
 
     int ticksSinceStatusRefresh = 0;

@@ -50,286 +50,68 @@ void TonePanel::layoutKnobRow (juce::Rectangle<int> area, const std::vector<juce
 }
 
 //==============================================================================
-AmpPanel::AmpPanel (AmpModel& ampToUse, AmpCapture& captureToUse, Cabinet& cabinetToUse)
-    : TonePanel ("AMP", &ampToUse.enabled),
-      amp (ampToUse), capture (captureToUse), cabinet (cabinetToUse),
-      power (amp.enabled),
-      gain (amp.gain), bass (amp.bass), mid (amp.mid),
-      treble (amp.treble), presence (amp.presence), master (amp.master),
-      captureInput (capture.input), captureBass (capture.bass), captureMid (capture.mid),
-      captureTreble (capture.treble), captureOutput (capture.output)
+/** The pedal's footswitch. Stepping on it (clicking) switches the pedal on or off. */
+class EffectPanel::Footswitch final : public juce::Component,
+                                      public juce::SettableTooltipClient
 {
-    choice.onChange = [this] { choiceChanged(); };
-
-    message.setFont (juce::FontOptions (13.0f));
-    message.setJustificationType (juce::Justification::centredLeft);
-    message.setMinimumHorizontalScale (1.0f);
-
-    for (auto* component : std::initializer_list<juce::Component*> { &power, &choice, &gain, &bass, &mid, &treble,
-                                                                     &presence, &master, &captureInput, &captureBass,
-                                                                     &captureMid, &captureTreble, &captureOutput })
-        addAndMakeVisible (component);
-
-    addChildComponent (message);
-    refreshChoices();
-    showCaptureDetails();
-}
-
-void AmpPanel::resized()
-{
-    auto header = getHeaderArea();
-    power.setBounds (header.removeFromRight (60));
-    header.removeFromRight (12);
-    choice.setBounds (header.removeFromRight (260));
-
-    auto area = getContentArea();
-    layoutKnobRow (area, { &gain, &bass, &mid, &treble, &presence, &master });
-
-    // In capture mode the knobs sit on the left and a note about the capture on the right.
-    auto captureKnobs = area.removeFromLeft (juce::jmin (area.getWidth() * 2 / 3, 5 * ParameterKnob::preferredWidth + 4 * 24));
-    layoutKnobRow (captureKnobs, { &captureInput, &captureBass, &captureMid, &captureTreble, &captureOutput });
-    area.removeFromLeft (24);
-    message.setBounds (area);
-}
-
-void AmpPanel::refreshChoices()
-{
-    choice.clear (juce::dontSendNotification);
-    choice.addItemList (AmpModel::getVoicingNames(), firstVoicingId);
-    choice.addSeparator();
-
-    if (capture.isLoaded())
-        choice.addItem ("Capture: " + capture.getInfo().name, captureId);
-
-    choice.addItem ("Load capture file (.nam)...", loadCaptureId);
-
-    if (capture.isLoaded())
-        choice.addItem ("Remove capture", removeCaptureId);
-
-    choice.setSelectedId (capture.isInUse() ? (int) captureId : firstVoicingId + amp.voicing.getIndex(),
-                          juce::dontSendNotification);
-
-    const auto usingCapture = capture.isInUse();
-
-    for (auto* knob : { &gain, &bass, &mid, &treble, &presence, &master })
-        knob->setVisible (! usingCapture);
-
-    for (auto* knob : { &captureInput, &captureBass, &captureMid, &captureTreble, &captureOutput })
-        knob->setVisible (usingCapture);
-
-    message.setVisible (usingCapture);
-}
-
-void AmpPanel::choiceChanged()
-{
-    const auto id = choice.getSelectedId();
-
-    if (id == loadCaptureId)
+public:
+    explicit Footswitch (Parameter& enabledToUse) : enabled (enabledToUse)
     {
-        chooseCaptureFile();
-        return;
+        setTooltip ("Footswitch: click to switch the pedal on or off.");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
-    if (id == removeCaptureId)
+    std::function<void()> onSwitch;
+
+    void paint (juce::Graphics& g) override
     {
-        capture.unload();
-        capture.active.set (0.0f);
-    }
-    else if (id == captureId)
-    {
-        capture.active.set (1.0f);
-        showCaptureDetails();
-    }
-    else if (id >= firstVoicingId && id < captureId)
-    {
-        capture.active.set (0.0f);
-        amp.voicing.set ((float) (id - firstVoicingId));
+        pedal_look::paintFootswitch (g, getLocalBounds().toFloat().reduced (2.0f), isMouseButtonDown());
     }
 
-    refreshChoices();
-}
+    void mouseDown (const juce::MouseEvent&) override   { repaint(); }
 
-void AmpPanel::chooseCaptureFile()
-{
-    const auto startFolder = capture.getLoadedFile().existsAsFile()
-                                 ? capture.getLoadedFile().getParentDirectory()
-                                 : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
-
-    fileChooser = std::make_unique<juce::FileChooser> ("Choose an amp capture (.nam file)", startFolder, "*.nam");
-
-    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                              [this] (const juce::FileChooser& chooser)
-                              {
-                                  const auto file = chooser.getResult();
-
-                                  // An empty result means the dialog was cancelled.
-                                  if (file != juce::File())
-                                  {
-                                      const auto error = capture.loadFile (file);
-
-                                      if (error.isNotEmpty())
-                                      {
-                                          refreshChoices();
-                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                                                                                  "Could not load the capture", error);
-                                          return;
-                                      }
-
-                                      capture.active.set (1.0f);
-
-                                      // A capture that includes the speaker would get a second
-                                      // one from the cabinet block, so switch that off. The
-                                      // user can switch it back on.
-                                      if (capture.getInfo().includesCabinet())
-                                          cabinet.enabled.set (0.0f);
-
-                                      showCaptureDetails();
-                                  }
-
-                                  refreshChoices();
-                              });
-}
-
-void AmpPanel::showCaptureDetails()
-{
-    if (! capture.isLoaded())
-        return;
-
-    const auto info = capture.getInfo();
-    juce::StringArray lines;
-
-    lines.add (info.name + ", made at " + juce::String (info.sampleRate / 1000.0, 1) + " kHz.");
-
-    if (info.includesCabinet())
-        lines.add ("It includes the speaker cabinet, so the Cab block is normally off. Switch it on to add a second cabinet.");
-    else if (info.gearType.isNotEmpty())
-        lines.add ("It does not include a speaker cabinet, so keep the Cab block on.");
-    else
-        lines.add ("The file does not say whether it includes a speaker cabinet. If it sounds muffled, switch the Cab block off.");
-
-    if (! info.hasLoudness)
-        lines.add ("The file does not report its loudness, so set the level with Output.");
-
-    lines.add ("Input sets how hard the capture is driven.");
-
-    message.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
-    message.setText (lines.joinIntoString ("\n"), juce::dontSendNotification);
-}
-
-//==============================================================================
-CabinetPanel::CabinetPanel (Cabinet& cabinetToUse)
-    : TonePanel ("CABINET", &cabinetToUse.enabled),
-      cabinet (cabinetToUse),
-      power (cabinet.enabled),
-      lowCut (cabinet.lowCut), highCut (cabinet.highCut)
-{
-    choice.onChange = [this] { choiceChanged(); };
-    refreshChoices();
-
-    message.setFont (juce::FontOptions (13.0f));
-    message.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
-    message.setJustificationType (juce::Justification::centredLeft);
-    message.setText ("Built-in cabinets are approximations. For the most realistic sound, load an impulse response file "
-                     "(WAV or AIFF). Many free ones are available online.",
-                     juce::dontSendNotification);
-
-    for (auto* component : std::initializer_list<juce::Component*> { &power, &choice, &lowCut, &highCut, &message })
-        addAndMakeVisible (component);
-}
-
-void CabinetPanel::resized()
-{
-    auto header = getHeaderArea();
-    power.setBounds (header.removeFromRight (60));
-    header.removeFromRight (12);
-    choice.setBounds (header.removeFromRight (240));
-
-    auto area = getContentArea();
-    layoutKnobRow (area.removeFromLeft (2 * ParameterKnob::preferredWidth + 36), { &lowCut, &highCut });
-    area.removeFromLeft (28);
-    message.setBounds (area);
-}
-
-void CabinetPanel::refreshChoices()
-{
-    choice.clear (juce::dontSendNotification);
-    choice.addItemList (Cabinet::getBuiltInNames(), firstBuiltInId);
-    choice.addSeparator();
-
-    if (cabinet.getBuiltInIndex() < 0)
-        choice.addItem ("File: " + cabinet.getCurrentName(), loadedFileId);
-
-    choice.addItem ("Load impulse response file...", loadFileId);
-
-    choice.setSelectedId (cabinet.getBuiltInIndex() >= 0 ? firstBuiltInId + cabinet.getBuiltInIndex()
-                                                         : (int) loadedFileId,
-                          juce::dontSendNotification);
-}
-
-void CabinetPanel::choiceChanged()
-{
-    const auto id = choice.getSelectedId();
-
-    if (id == loadFileId)
+    void mouseUp (const juce::MouseEvent& event) override
     {
-        chooseFile();
-        return;
+        repaint();
+
+        if (! getLocalBounds().contains (event.getPosition()))
+            return;
+
+        enabled.set (enabled.isOn() ? 0.0f : 1.0f);
+
+        if (onSwitch != nullptr)
+            onSwitch();
     }
 
-    if (id >= firstBuiltInId && id < loadedFileId)
-    {
-        cabinet.selectBuiltIn (id - firstBuiltInId);
-        refreshChoices();
-    }
-}
+private:
+    Parameter& enabled;
+};
 
-void CabinetPanel::chooseFile()
+namespace
 {
-    const auto startFolder = cabinet.getLoadedFile().existsAsFile()
-                                 ? cabinet.getLoadedFile().getParentDirectory()
-                                 : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
-
-    fileChooser = std::make_unique<juce::FileChooser> ("Choose an impulse response file", startFolder,
-                                                       "*.wav;*.aif;*.aiff;*.flac");
-
-    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                              [this] (const juce::FileChooser& chooser)
-                              {
-                                  const auto file = chooser.getResult();
-
-                                  // An empty result means the dialog was cancelled.
-                                  if (file != juce::File())
-                                  {
-                                      const auto error = cabinet.loadFile (file);
-
-                                      if (error.isNotEmpty())
-                                      {
-                                          message.setColour (juce::Label::textColourId, juce::Colour (0xfff5a524));
-                                          message.setText (error, juce::dontSendNotification);
-                                      }
-                                      else
-                                      {
-                                          message.setColour (juce::Label::textColourId,
-                                                             juce::Colours::white.withAlpha (0.6f));
-                                          message.setText ("Loaded " + file.getFileName() + ".",
-                                                           juce::dontSendNotification);
-                                      }
-                                  }
-
-                                  refreshChoices();
-                              });
+constexpr int stompKnobWidth = 92;
+constexpr int stompKnobHeight = 104;
+constexpr int stompTopPad = 22;
+constexpr int stompTitleHeight = 74;
+constexpr int stompExtrasHeight = 54;
+constexpr int stompFootHeight = 128;
 }
 
-//==============================================================================
-EffectPanel::EffectPanel (Effect& effectToUse, std::function<void()> onRemove, SharedTempo tempo)
-    : TonePanel (juce::String (effectToUse.name).toUpperCase(), &effectToUse.enabled),
+EffectPanel::EffectPanel (Effect& effectToUse, juce::Colour faceToUse, const juce::String& categoryToUse,
+                          std::function<void()> onRemove, SharedTempo tempo)
+    : TonePanel ({}),
       effect (effectToUse),
+      face (faceToUse),
+      category (categoryToUse),
       sharedTempo (std::move (tempo)),
-      power (effectToUse.enabled),
       tapTime (effectToUse.getTapTimeParameter()),
       tempoSync (effectToUse.getTempoSyncParameter())
 {
-    addAndMakeVisible (power);
+    const auto ink = pedal_look::inkFor (face);
+
+    footswitch = std::make_unique<Footswitch> (effect.enabled);
+    footswitch->onSwitch = [this] { repaint(); };
+    addAndMakeVisible (*footswitch);
 
     if (onRemove != nullptr)
     {
@@ -341,18 +123,30 @@ EffectPanel::EffectPanel (Effect& effectToUse, std::function<void()> onRemove, S
     for (auto* control : effect.getControls())
     {
         if (control->isChoice())
+        {
             addAndMakeVisible (choices.add (new ParameterChoice (*control)));
+        }
         else if (control->isSwitch())
-            addAndMakeVisible (switches.add (new ParameterToggle (*control)));
+        {
+            auto* toggle = switches.add (new ParameterToggle (*control));
+            toggle->setColour (juce::ToggleButton::textColourId, ink);
+            toggle->setColour (juce::ToggleButton::tickDisabledColourId, ink.withAlpha (0.6f));
+            addAndMakeVisible (toggle);
+        }
         else
         {
             auto* knob = knobs.add (new ParameterKnob (*control));
+            knob->setLookAndFeel (&knobLook);
+            knob->setInk (ink);
             addAndMakeVisible (knob);
 
             if (control == tapTime)
                 timeKnob = knob;
         }
     }
+
+    for (auto* choice : choices)
+        choice->setInk (ink);
 
     if (tapTime != nullptr && tempoSync != nullptr)
     {
@@ -364,14 +158,103 @@ EffectPanel::EffectPanel (Effect& effectToUse, std::function<void()> onRemove, S
         addAndMakeVisible (tapButton);
 
         tempoInfo.setFont (juce::FontOptions (12.0f));
-        tempoInfo.setJustificationType (juce::Justification::centredLeft);
+        tempoInfo.setJustificationType (juce::Justification::centred);
         tempoInfo.setMinimumHorizontalScale (0.8f);
-        tempoInfo.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.6f));
+        tempoInfo.setColour (juce::Label::textColourId, ink.withAlpha (0.75f));
         addAndMakeVisible (tempoInfo);
 
         refreshTempoInfo();
-        startTimerHz (10);
     }
+
+    lastOn = effect.enabled.isOn();
+    startTimerHz (10);
+}
+
+EffectPanel::~EffectPanel()
+{
+    for (auto* knob : knobs)
+        knob->setLookAndFeel (nullptr);
+}
+
+int EffectPanel::getColumns() const
+{
+    const auto count = knobs.size();
+    return count <= 3 ? juce::jmax (1, count) : (count == 4 ? 2 : (count <= 6 ? 3 : 4));
+}
+
+int EffectPanel::getKnobRows() const
+{
+    return knobs.isEmpty() ? 0 : (knobs.size() + getColumns() - 1) / getColumns();
+}
+
+bool EffectPanel::hasExtras() const
+{
+    return ! choices.isEmpty() || ! switches.isEmpty() || tapTempo != nullptr;
+}
+
+int EffectPanel::getEnclosureWidth() const
+{
+    const auto numExtras = choices.size() + switches.size() + (tapTempo != nullptr ? 1 : 0);
+    return juce::jmax (280, getColumns() * stompKnobWidth + 40, numExtras * 128 + 32);
+}
+
+int EffectPanel::getComfortableWidth() const
+{
+    // The knobs still fit when the box is a little narrower than it likes.
+    return getEnclosureWidth() * 85 / 100 + 40;
+}
+
+juce::Rectangle<int> EffectPanel::getEnclosure() const
+{
+    const auto width = getEnclosureWidth();
+    const auto height = stompTopPad + getKnobRows() * stompKnobHeight + stompTitleHeight
+                      + (hasExtras() ? stompExtrasHeight : 0) + stompFootHeight;
+
+    auto area = getLocalBounds().reduced (20);
+    area.removeFromTop (30);   // room for the Remove button
+    const auto w = juce::jmin (width, area.getWidth());
+    const auto h = juce::jmin (height, area.getHeight());
+    return juce::Rectangle<int> (w, h).withCentre (area.getCentre());
+}
+
+juce::Point<float> EffectPanel::getJack (bool input) const
+{
+    const auto box = getEnclosure().toFloat();
+    return { input ? box.getX() - 10.0f : box.getRight() + 10.0f, box.getY() + 85.0f };
+}
+
+void EffectPanel::paint (juce::Graphics& g)
+{
+    const auto box = getEnclosure().toFloat();
+    const bool on = effect.enabled.isOn();
+
+    // Input and output jacks on the sides.
+    for (auto x : { box.getX() - 12.0f, box.getRight() - 4.0f })
+    {
+        const juce::Rectangle<float> jack (x, box.getY() + 70.0f, 16.0f, 30.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff999999), jack.getX(), 0.0f, juce::Colour (0xff666666), jack.getRight(), 0.0f, false));
+        g.fillRoundedRectangle (jack, 3.0f);
+    }
+
+    pedal_look::paintEnclosure (g, box, face, 20.0f);
+
+    const auto ink = pedal_look::inkFor (face);
+    auto inner = box.reduced (18.0f, 0.0f);
+    inner.removeFromTop ((float) (stompTopPad + getKnobRows() * stompKnobHeight));
+
+    auto nameArea = inner.removeFromTop ((float) stompTitleHeight);
+    g.setColour (ink);
+    g.setFont (juce::FontOptions (juce::jlimit (24.0f, 40.0f, box.getWidth() / 7.0f), juce::Font::bold | juce::Font::italic));
+    g.drawFittedText (juce::String (effect.name).toUpperCase(), nameArea.removeFromTop (nameArea.getHeight() * 0.66f).toNearestInt(),
+                      juce::Justification::centredBottom, 1, 0.6f);
+    g.setColour (ink.withAlpha (0.6f));
+    g.setFont (juce::FontOptions (11.0f));
+    g.drawText (category.toUpperCase(), nameArea, juce::Justification::centredTop);
+
+    if (hasExtras())
+        inner.removeFromTop ((float) stompExtrasHeight);
+
+    pedal_look::paintLed (g, { box.getCentreX(), inner.getY() + 14.0f }, 11.0f, on);
 }
 
 void EffectPanel::tapped()
@@ -406,7 +289,15 @@ void EffectPanel::tapped()
 
 void EffectPanel::timerCallback()
 {
-    refreshTempoInfo();
+    if (tapTempo != nullptr)
+        refreshTempoInfo();
+
+    // The light follows the switch, which can also change from the chain stack.
+    if (lastOn != effect.enabled.isOn())
+    {
+        lastOn = effect.enabled.isOn();
+        repaint();
+    }
 }
 
 void EffectPanel::refreshTempoInfo()
@@ -443,40 +334,57 @@ void EffectPanel::refreshTempoInfo()
 
 void EffectPanel::resized()
 {
-    auto header = getHeaderArea();
-    power.setBounds (header.removeFromRight (60));
-    header.removeFromRight (12);
-    removeButton.setBounds (header.removeFromRight (80));
+    const auto box = getEnclosure();
+    removeButton.setBounds (box.getRight() - 80, box.getY() - 36, 80, 26);
 
-    auto area = getContentArea();
-    const bool hasTap = tapTempo != nullptr;
+    auto inner = box.reduced (20, 0);
+    inner.removeFromTop (stompTopPad);
 
-    // Choices, switches and the Tap button sit in a column on the right, and
-    // the knobs are centred in what is left.
-    if (! switches.isEmpty() || ! choices.isEmpty() || hasTap)
+    // Knobs in a grid, each row centred.
+    const auto columns = getColumns();
+
+    for (int row = 0; row < getKnobRows(); ++row)
     {
-        auto column = area.removeFromRight (150);
-        column = column.withSizeKeepingCentre (column.getWidth(),
-                                               choices.size() * ParameterChoice::preferredHeight + switches.size() * 32
-                                                   + (hasTap ? 30 + 20 : 0));
+        auto rowArea = inner.removeFromTop (stompKnobHeight);
+        const auto first = row * columns;
+        const auto count = juce::jmin (columns, knobs.size() - first);
+        const auto width = juce::jmin (stompKnobWidth, rowArea.getWidth() / juce::jmax (1, count));
+        auto x = rowArea.getCentreX() - count * width / 2;
 
-        for (auto* choice : choices)
-            choice->setBounds (column.removeFromTop (ParameterChoice::preferredHeight).withTrimmedBottom (4));
+        for (int i = 0; i < count; ++i, x += width)
+            knobs[first + i]->setBounds (x, rowArea.getY(), width, stompKnobHeight);
+    }
 
-        for (auto* toggle : switches)
-            toggle->setBounds (column.removeFromTop (32).reduced (0, 3));
+    inner.removeFromTop (stompTitleHeight);
 
-        if (hasTap)
+    // Choices, switches and Tap sit in a row under the name.
+    if (hasExtras())
+    {
+        auto row = inner.removeFromTop (stompExtrasHeight);
+        std::vector<juce::Component*> extras;
+
+        for (auto* choice : choices)    extras.push_back (choice);
+        for (auto* toggle : switches)   extras.push_back (toggle);
+
+        const auto slotWidth = juce::jmin (124, row.getWidth() / juce::jmax (1, (int) extras.size() + (tapTempo != nullptr ? 1 : 0)));
+        const auto total = slotWidth * ((int) extras.size() + (tapTempo != nullptr ? 1 : 0));
+        auto x = row.getCentreX() - total / 2;
+
+        for (auto* extra : extras)
         {
-            tapButton.setBounds (column.removeFromTop (30).reduced (0, 2));
-            tempoInfo.setBounds (column.removeFromTop (20));
+            const bool isToggle = dynamic_cast<ParameterToggle*> (extra) != nullptr;
+            extra->setBounds (juce::Rectangle<int> (x, row.getY(), slotWidth, row.getHeight()).reduced (4, isToggle ? 12 : 2));
+            x += slotWidth;
+        }
+
+        if (tapTempo != nullptr)
+        {
+            auto slot = juce::Rectangle<int> (x, row.getY(), slotWidth, row.getHeight()).reduced (4, 2);
+            tapButton.setBounds (slot.removeFromTop (28));
+            tempoInfo.setBounds (slot);
         }
     }
 
-    std::vector<juce::Component*> row;
-
-    for (auto* knob : knobs)
-        row.push_back (knob);
-
-    layoutKnobRow (area, row);
+    inner.removeFromTop (34);   // the light
+    footswitch->setBounds (juce::Rectangle<int> (64, 64).withCentre ({ box.getCentreX(), inner.getY() + 40 }));
 }
