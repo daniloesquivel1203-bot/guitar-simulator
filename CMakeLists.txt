@@ -85,6 +85,9 @@ target_sources(GuitarSimulator
         src/engine/Practice.cpp
         src/engine/Presets.cpp
         src/engine/SignalChain.cpp
+        src/engine/TabArrangement.cpp
+        src/engine/TabFile.cpp
+        src/engine/TabSong.cpp
         src/engine/Tuner.cpp
         src/engine/effects/BlockDsp.cpp
         src/engine/effects/CustomPedal.cpp
@@ -109,6 +112,8 @@ target_sources(GuitarSimulator
         src/ui/LooperLayersView.cpp
         src/ui/PracticePanel.cpp
         src/ui/PresetBar.cpp
+        src/ui/SongPanel.cpp
+        src/ui/TabView.cpp
         src/ui/Theme.cpp
         src/ui/TonePanels.cpp
         src/ui/TunerPanel.cpp)
@@ -166,6 +171,9 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             src/engine/Practice.cpp
             src/engine/Presets.cpp
             src/engine/SignalChain.cpp
+            src/engine/TabArrangement.cpp
+            src/engine/TabFile.cpp
+            src/engine/TabSong.cpp
             src/engine/Tuner.cpp
             src/engine/effects/BlockDsp.cpp
             src/engine/effects/CustomPedal.cpp
@@ -198,6 +206,7 @@ if(GUITAR_SIMULATOR_BUILD_TESTS)
             tests/SafetyLimiterTests.cpp
             tests/SignalChainTests.cpp
             tests/SoundLabTests.cpp
+            tests/TabTests.cpp
             tests/TempoSyncTests.cpp
             tests/TestSignals.h)
 
