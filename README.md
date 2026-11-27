@@ -210,3 +210,5 @@ there.
 C++20 with [JUCE](https://juce.com) 9, built with CMake. On Windows the app
 is compiled with ASIO support (using the headers bundled with JUCE) and falls
 back to WASAPI for interfaces without an ASIO driver.
+
+Notes for working on the interface are in [docs/GUI_NOTES.md](docs/GUI_NOTES.md).
