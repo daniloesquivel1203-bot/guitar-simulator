@@ -8,9 +8,20 @@
 namespace
 {
 constexpr int labelWidth = 34;
-constexpr float stringGap = 18.0f;
 constexpr float topMargin = 46.0f;    // room for bar numbers and section names
 constexpr float stemLength = 18.0f;
+constexpr float stemGap = 10.0f;
+
+constexpr double eps = 1.0e-6;
+
+bool isBeamable (const tab::Beat& b)   { return ! b.notes.empty() && b.length <= 0.5 + eps; }
+
+/** Eighths and shorter are beamed together within each quarter-note beat. */
+bool beamedTogether (const tab::Beat& a, const tab::Beat& b)
+{
+    return isBeamable (a) && isBeamable (b)
+           && (int) std::floor (a.position + eps) == (int) std::floor (b.position + eps);
+}
 }
 
 TabView::TabView()
@@ -93,7 +104,10 @@ void TabView::paint (juce::Graphics& g)
     const int numStrings = t.hasTab() ? (int) t.tuning.size() : 1;
     const float ppb = pixelsPerBeat * zoom;
     const float playheadX = labelWidth + (bounds.getWidth() - labelWidth) * 0.25f;
-    const float staffTop = topMargin;
+    // Spread the strings out when there is room, and centre the staff.
+    const float stringGap = juce::jlimit (18.0f, 26.0f, (bounds.getHeight() - 110.0f) / (float) juce::jmax (1, numStrings - 1));
+    const float blockHeight = topMargin + stringGap * (float) (numStrings - 1) + stemGap + stemLength;
+    const float staffTop = juce::jmax (topMargin, (bounds.getHeight() - blockHeight) * 0.5f + topMargin);
     const float staffBottom = staffTop + stringGap * (float) (numStrings - 1);
 
     auto xForBeat = [&] (double beat) { return playheadX + (float) ((beat - position) * ppb); };
@@ -152,8 +166,11 @@ void TabView::paint (juce::Graphics& g)
         if ((size_t) it->masterBar >= t.bars.size())
             continue;
 
-        for (const auto& beat : t.bars[(size_t) it->masterBar].beats)
+        const auto& barBeats = t.bars[(size_t) it->masterBar].beats;
+
+        for (size_t bi = 0; bi < barBeats.size(); ++bi)
         {
+            const auto& beat = barBeats[bi];
             const double beatStart = it->startBeat + beat.position;
             const float x = xForBeat (beatStart);
 
@@ -204,18 +221,44 @@ void TabView::paint (juce::Graphics& g)
             }
 
             // Rhythm stem
-            if (beat.length < 4.0 - 1.0e-6)
+            if (beat.length < 4.0 - eps)
             {
-                const float stemTop = staffBottom + 10.0f;
+                const float stemTop = staffBottom + stemGap;
+                const float stemEnd = stemTop + stemLength;
                 g.setColour (ink.withMultipliedAlpha (0.8f));
-                g.drawLine (x, stemTop, x, stemTop + stemLength, beat.length >= 2.0 - 1.0e-6 ? 1.0f : 1.6f);
+                g.drawLine (x, stemTop, x, stemEnd, beat.length >= 2.0 - eps ? 1.0f : 1.6f);
 
-                const int numFlags = beat.length <= 0.25 + 1.0e-6 ? 2 : beat.length <= 0.5 + 1.0e-6 ? 1 : 0;
+                const bool toNext = bi + 1 < barBeats.size() && beamedTogether (beat, barBeats[bi + 1]);
+                const bool fromPrevious = bi > 0 && beamedTogether (barBeats[bi - 1], beat);
+                const int beams = beat.length <= 0.25 + eps ? 2 : beat.length <= 0.5 + eps ? 1 : 0;
 
-                for (int f = 0; f < numFlags; ++f)
+                if (toNext)
                 {
-                    const float fy = stemTop + stemLength - (float) f * 5.0f;
-                    g.drawLine (x, fy, x + 7.0f, fy - 4.0f, 1.6f);
+                    const auto& next = barBeats[bi + 1];
+                    const float nextX = xForBeat (it->startBeat + next.position);
+                    const int shared = juce::jmin (beams, next.length <= 0.25 + eps ? 2 : 1);
+
+                    for (int b = 0; b < shared; ++b)
+                        g.fillRect (juce::Rectangle<float> (x, stemEnd - 3.0f - (float) b * 5.0f, nextX - x, 3.0f));
+
+                    // A sixteenth next to an eighth gets a short second beam.
+                    if (beams > shared && ! fromPrevious)
+                        g.fillRect (juce::Rectangle<float> (x, stemEnd - 8.0f, 7.0f, 3.0f));
+                }
+                else if (fromPrevious)
+                {
+                    const auto& previous = barBeats[bi - 1];
+
+                    if (beams == 2 && previous.length > 0.25 + eps)
+                        g.fillRect (juce::Rectangle<float> (x - 7.0f, stemEnd - 8.0f, 7.0f, 3.0f));
+                }
+                else
+                {
+                    for (int f = 0; f < beams; ++f)
+                    {
+                        const float fy = stemEnd - (float) f * 5.0f;
+                        g.drawLine (x, fy, x + 7.0f, fy - 6.0f, 1.6f);
+                    }
                 }
             }
         }
