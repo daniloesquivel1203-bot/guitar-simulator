@@ -8,6 +8,7 @@
 #include "ui/CustomPedalPanel.h"
 #include "ui/PatchPanel.h"
 #include "ui/LevelMeter.h"
+#include "ui/NeighbourPedal.h"
 #include "ui/PedalTray.h"
 #include "ui/PresetBar.h"
 #include "ui/TonePanels.h"
@@ -92,7 +93,11 @@ private:
     void addFromTray (const juce::String& description, Pedalboard::Side, int index);
     void addFromTray (const juce::String& description);
     bool isWidePanelShowing() const;
-    void showPedalMenu (int tile);
+    void showPedalMenu (int tile, juce::Rectangle<int> screenArea);
+
+    /** Shows the blocks before and after the open pedal beside it, when it is a stompbox. */
+    void layoutNeighbours (juce::Rectangle<int>& area);
+    void paintCable (juce::Graphics&, juce::Point<float> from, juce::Point<float> to) const;
     void removePedal (Pedalboard::Side, int index);
 
     /** One per brick in the chain stack, in signal order. Empty for the amp and add bricks. */
@@ -104,6 +109,9 @@ private:
     ChainStack chainStack;
     PedalTray pedalTray;
     AmpRig ampRig;
+    NeighbourPedal leftNeighbour { NeighbourPedal::Placement::left };
+    NeighbourPedal rightNeighbour { NeighbourPedal::Placement::right };
+    int leftNeighbourTile = -1, rightNeighbourTile = -1;
 
     /** Identify blocks across rebuilds by their on/off switch: the one that
         should be selected, and the one whose panel is showing. */

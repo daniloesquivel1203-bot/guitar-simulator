@@ -87,6 +87,17 @@ public:
         repaint();
     }
 
+    /** A brick's outline on screen, for placing a menu next to it. */
+    juce::Rectangle<int> getBrickScreenBounds (int index) const
+    {
+        auto bounds = getTileBounds (index);
+
+        if (index == selected)
+            bounds = bounds.translated (8, 0);
+
+        return localAreaToGlobal (bounds);
+    }
+
     void paint (juce::Graphics& g) override
     {
         g.setColour (juce::Colours::white.withAlpha (0.35f));

@@ -192,10 +192,21 @@ bool EffectPanel::hasExtras() const
     return ! choices.isEmpty() || ! switches.isEmpty() || tapTempo != nullptr;
 }
 
-juce::Rectangle<int> EffectPanel::getEnclosure() const
+int EffectPanel::getEnclosureWidth() const
 {
     const auto numExtras = choices.size() + switches.size() + (tapTempo != nullptr ? 1 : 0);
-    const auto width = juce::jmax (280, getColumns() * stompKnobWidth + 40, numExtras * 128 + 32);
+    return juce::jmax (280, getColumns() * stompKnobWidth + 40, numExtras * 128 + 32);
+}
+
+int EffectPanel::getComfortableWidth() const
+{
+    // The knobs still fit when the box is a little narrower than it likes.
+    return getEnclosureWidth() * 85 / 100 + 40;
+}
+
+juce::Rectangle<int> EffectPanel::getEnclosure() const
+{
+    const auto width = getEnclosureWidth();
     const auto height = stompTopPad + getKnobRows() * stompKnobHeight + stompTitleHeight
                       + (hasExtras() ? stompExtrasHeight : 0) + stompFootHeight;
 
@@ -204,6 +215,12 @@ juce::Rectangle<int> EffectPanel::getEnclosure() const
     const auto w = juce::jmin (width, area.getWidth());
     const auto h = juce::jmin (height, area.getHeight());
     return juce::Rectangle<int> (w, h).withCentre (area.getCentre());
+}
+
+juce::Point<float> EffectPanel::getJack (bool input) const
+{
+    const auto box = getEnclosure().toFloat();
+    return { input ? box.getX() - 10.0f : box.getRight() + 10.0f, box.getY() + 85.0f };
 }
 
 void EffectPanel::paint (juce::Graphics& g)

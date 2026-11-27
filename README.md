@@ -31,6 +31,9 @@ Windows. The More button next to the preset list opens that folder.
    Click a brick to show that pedal in the middle as a stompbox, and click the
    light on a brick (or the pedal's footswitch) to switch it on or off. Drag a
    brick up or down to move it, including to the other side of the amp.
+   The blocks just before and after the open pedal stand beside it, patched in
+   with cables; click one to open it. Right-click a pedal, in the stack or
+   beside the open one, to move or remove it.
 6. The amp and cabinet are always on the right. The head's display picks a
    voicing; the cabinet's display picks a cabinet or loads your own impulse
    response file (WAV or AIFF) for a more realistic speaker sound. With

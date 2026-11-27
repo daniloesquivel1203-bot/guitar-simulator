@@ -88,7 +88,7 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     {
         addFromTray (description.toString(), side, index);
     };
-    chainStack.onPedalMenu = [this] (int tile) { showPedalMenu (tile); };
+    chainStack.onPedalMenu = [this] (int tile) { showPedalMenu (tile, chainStack.getBrickScreenBounds (tile)); };
     chainStack.onMove = [this] (Pedalboard::Side fromSide, int fromIndex, Pedalboard::Side toSide, int toIndex)
     {
         if (engine.getChain().getBoard().move (fromSide, fromIndex, toSide, toIndex))
@@ -100,6 +100,21 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     pedalTray.getMyPedals = [this] { return customPedals.getNames(); };
     addAndMakeVisible (pedalTray);
     addAndMakeVisible (ampRig);
+
+    // The blocks either side of the open pedal: click one to open it instead.
+    for (auto* neighbour : { &leftNeighbour, &rightNeighbour })
+    {
+        addChildComponent (*neighbour);
+        neighbour->onClick = [this, neighbour]
+        {
+            selectBlock (neighbour == &leftNeighbour ? leftNeighbourTile : rightNeighbourTile);
+        };
+        neighbour->onMenu = [this, neighbour]
+        {
+            const auto tile = neighbour == &leftNeighbour ? leftNeighbourTile : rightNeighbourTile;
+            showPedalMenu (tile, neighbour->localAreaToGlobal (neighbour->getPedalBounds().toNearestInt()));
+        };
+    }
 
     // Start on the first pedal, if there is one. The amp is always in view.
     const auto& firstPedals = engine.getChain().getBoard().getPedals (Pedalboard::beforeAmp);
@@ -203,7 +218,86 @@ void MainComponent::paint (juce::Graphics& g)
             g.drawFittedText ("Pick a pedal in the stack to show it here,\nor add one from the tray below.",
                               floor.withTrimmedRight (rigWidth), juce::Justification::centred, 2);
         }
+
+        // Patch cables from the neighbours into the open pedal's jacks.
+        if (auto* stompbox = dynamic_cast<EffectPanel*> (detailPanel.get()))
+        {
+            const auto panelOrigin = stompbox->getPosition().toFloat();
+
+            if (leftNeighbour.isVisible())
+                paintCable (g, leftNeighbour.getPosition().toFloat() + leftNeighbour.getJack(), panelOrigin + stompbox->getJack (true));
+
+            if (rightNeighbour.isVisible())
+                paintCable (g, panelOrigin + stompbox->getJack (false), rightNeighbour.getPosition().toFloat() + rightNeighbour.getJack());
+        }
     }
+}
+
+void MainComponent::paintCable (juce::Graphics& g, juce::Point<float> from, juce::Point<float> to) const
+{
+    // A cable that sags a little between its plugs.
+    juce::Path cable;
+    const auto sag = juce::jmin (60.0f, std::abs (to.x - from.x) * 0.35f + 12.0f);
+    cable.startNewSubPath (from);
+    cable.cubicTo (from.x + (to.x - from.x) * 0.35f, juce::jmax (from.y, to.y) + sag,
+                   from.x + (to.x - from.x) * 0.65f, juce::jmax (from.y, to.y) + sag, to.x, to.y);
+
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.strokePath (cable, juce::PathStrokeType (7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                  juce::AffineTransform::translation (0.0f, 3.0f));
+    g.setColour (juce::Colour (0xff111214));
+    g.strokePath (cable, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour (juce::Colours::white.withAlpha (0.08f));
+    g.strokePath (cable, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                  juce::AffineTransform::translation (0.0f, -1.0f));
+
+    // The plugs.
+    for (auto p : { from, to })
+    {
+        g.setColour (juce::Colour (0xff3a3c42));
+        g.fillRoundedRectangle (juce::Rectangle<float> (12.0f, 9.0f).withCentre (p), 2.0f);
+    }
+}
+
+void MainComponent::layoutNeighbours (juce::Rectangle<int>& area)
+{
+    leftNeighbourTile = rightNeighbourTile = -1;
+    const auto selected = chainStack.getSelected();
+    const auto& tiles = chainStack.getTiles();
+
+    auto* stompbox = dynamic_cast<EffectPanel*> (detailPanel.get());
+
+    // Room either side once the open pedal has what it needs. Too little, and the neighbours stay hidden.
+    const auto columnWidth = stompbox != nullptr ? juce::jmin (160, (area.getWidth() - stompbox->getComfortableWidth()) / 2) : 0;
+
+    if (stompbox != nullptr && columnWidth >= 80 && juce::isPositiveAndBelow (selected, (int) tiles.size()))
+    {
+        if (selected > 0 && tiles[(size_t) selected - 1].kind != ChainStack::Kind::add)
+            leftNeighbourTile = selected - 1;
+
+        if (selected + 1 < (int) tiles.size() && tiles[(size_t) selected + 1].kind != ChainStack::Kind::add)
+            rightNeighbourTile = selected + 1;
+    }
+
+    const bool any = leftNeighbourTile >= 0 || rightNeighbourTile >= 0;
+
+    // Both columns are kept, even with one neighbour, so the open pedal stays centred.
+    auto leftColumn = any ? area.removeFromLeft (columnWidth) : juce::Rectangle<int>();
+    auto rightColumn = any ? area.removeFromRight (columnWidth) : juce::Rectangle<int>();
+
+    const auto place = [&tiles] (NeighbourPedal& neighbour, int tile, juce::Rectangle<int> column)
+    {
+        neighbour.setVisible (tile >= 0);
+
+        if (tile >= 0)
+        {
+            neighbour.setTile (tiles[(size_t) tile]);
+            neighbour.setBounds (column.reduced (0, 20));
+        }
+    };
+
+    place (leftNeighbour, leftNeighbourTile, leftColumn);
+    place (rightNeighbour, rightNeighbourTile, rightColumn);
 }
 
 void MainComponent::paintCap (juce::Graphics& g, juce::Rectangle<int> area) const
@@ -282,8 +376,19 @@ void MainComponent::resized()
     if (pedalTray.isVisible())
         pedalTray.setBounds (area.removeFromBottom (trayHeight));
 
+    if (! showingTuner && ! showingPractice && ! wide)
+        layoutNeighbours (area);
+    else
+    {
+        leftNeighbour.setVisible (false);
+        rightNeighbour.setVisible (false);
+        leftNeighbourTile = rightNeighbourTile = -1;
+    }
+
     if (detailPanel != nullptr)
         detailPanel->setBounds (wide ? area.reduced (16) : area);
+
+    repaint();   // the cables follow the layout
 }
 
 void MainComponent::rebuildChain (int fallbackIndex)
@@ -388,7 +493,10 @@ void MainComponent::rebuildChain (int fallbackIndex)
         {
             // The same block's panel can stay; only the highlight moves.
             if (panelBlock == selectedBlock && detailPanel != nullptr)
+            {
                 chainStack.setSelected (i);
+                resized();   // the neighbours may have changed
+            }
             else
                 selectBlock (i);
 
@@ -555,8 +663,11 @@ void MainComponent::addFromTray (const juce::String& description, Pedalboard::Si
     rebuildChain();
 }
 
-void MainComponent::showPedalMenu (int tileIndex)
+void MainComponent::showPedalMenu (int tileIndex, juce::Rectangle<int> screenArea)
 {
+    if (! juce::isPositiveAndBelow (tileIndex, (int) chainStack.getTiles().size()))
+        return;
+
     const auto tile = chainStack.getTiles()[(size_t) tileIndex];
     const auto otherSide = tile.side == Pedalboard::beforeAmp ? Pedalboard::afterAmp : Pedalboard::beforeAmp;
     const bool otherSideFull = (int) engine.getChain().getBoard().getPedals (otherSide).size() >= Pedalboard::maxPedalsPerSide;
@@ -566,7 +677,9 @@ void MainComponent::showPedalMenu (int tileIndex)
     menu.addSeparator();
     menu.addItem (2, "Remove " + tile.name);
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (chainStack),
+    // The menu opens beside the pedal that was right-clicked.
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea)
+                                                  .withPreferredPopupDirection (juce::PopupMenu::Options::PopupDirection::downwards),
                         [safe = juce::Component::SafePointer<MainComponent> (this), tile, otherSide] (int result)
                         {
                             if (safe == nullptr)
@@ -683,6 +796,8 @@ void MainComponent::timerCallback()
     }
 
     chainStack.repaint();
+    leftNeighbour.repaint();
+    rightNeighbour.repaint();
     ampRig.refreshDimming();
 
     if (detailPanel != nullptr)

@@ -66,6 +66,15 @@ public:
     void resized() override;
     void refreshPower() override   { repaint(); }
 
+    /** The pedal's outline, sized for its controls and centred in the panel. */
+    juce::Rectangle<int> getEnclosure() const;
+
+    /** Where the input (left) and output (right) cables plug in, in this panel. */
+    juce::Point<float> getJack (bool input) const;
+
+    /** The narrowest panel the pedal still looks right in. */
+    int getComfortableWidth() const;
+
 private:
     class Footswitch;
 
@@ -73,8 +82,7 @@ private:
     void tapped();
     void refreshTempoInfo();
 
-    /** The pedal's outline, sized for its controls and centred in the panel. */
-    juce::Rectangle<int> getEnclosure() const;
+    int getEnclosureWidth() const;
     int getColumns() const;
     int getKnobRows() const;
     bool hasExtras() const;
