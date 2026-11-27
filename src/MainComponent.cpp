@@ -2,6 +2,7 @@
 
 #include "ui/AudioSettingsPanel.h"
 #include "ui/Dialogs.h"
+#include "ui/JamPanel.h"
 #include "ui/PracticePanel.h"
 #include "ui/Theme.h"
 #include "ui/TunerPanel.h"
@@ -74,6 +75,11 @@ MainComponent::MainComponent (AudioEngine& engineToUse)
     practiceButton.setTooltip ("Metronome, looper and recording.");
     practiceButton.onClick = [this] { showPractice(); };
     addAndMakeVisible (practiceButton);
+
+    jamButton.setTooltip ("Jam tracks: a backing band that plays chords in any key and style.");
+    jamButton.onClick = [this] { showJam(); };
+    addAndMakeVisible (jamButton);
+    JamPanel::applySettings (engine);
 
     chainStack.onSelect = [this] (int index) { selectBlock (index); };
     chainStack.onToggle = [this] (int index)
@@ -198,7 +204,7 @@ void MainComponent::paint (juce::Graphics& g)
     paintCap (g, stack.removeFromBottom (capHeight));
 
     // The floor the pedal stands on.
-    if (! showingTuner && ! showingPractice)
+    if (! showingTuner && ! showingPractice && ! showingJam)
     {
         auto floor = area.withTrimmedBottom (trayHeight);
         g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2b2d33), (float) floor.getCentreX(), (float) floor.getY() + (float) floor.getHeight() * 0.35f,
@@ -288,7 +294,7 @@ void MainComponent::paintCap (juce::Graphics& g, juce::Rectangle<int> area) cons
 
 bool MainComponent::isWidePanelShowing() const
 {
-    return showingTuner || showingPractice || widePanel;
+    return showingTuner || showingPractice || showingJam || widePanel;
 }
 
 void MainComponent::resized()
@@ -304,6 +310,8 @@ void MainComponent::resized()
     tunerButton.setBounds (topRow.removeFromRight (80));
     topRow.removeFromRight (8);
     practiceButton.setBounds (topRow.removeFromRight (90));
+    topRow.removeFromRight (8);
+    jamButton.setBounds (topRow.removeFromRight (64));
     topRow.removeFromRight (16);
     slotBButton.setBounds (topRow.removeFromRight (30));
     slotAButton.setBounds (topRow.removeFromRight (30));
@@ -345,7 +353,7 @@ void MainComponent::resized()
     // Right: the amp. The tuner, practice tools and the bigger pedal editors use its space too.
     const bool wide = isWidePanelShowing();
     ampRig.setVisible (! wide);
-    pedalTray.setVisible (! showingTuner && ! showingPractice);
+    pedalTray.setVisible (! showingTuner && ! showingPractice && ! showingJam);
 
     if (! wide)
         ampRig.setBounds (area.removeFromRight (rigWidth));
@@ -353,7 +361,7 @@ void MainComponent::resized()
     if (pedalTray.isVisible())
         pedalTray.setBounds (area.removeFromBottom (trayHeight));
 
-    if (! showingTuner && ! showingPractice && ! wide)
+    if (! showingTuner && ! showingPractice && ! showingJam && ! wide)
         layoutNeighbours (area);
     else
     {
@@ -462,7 +470,7 @@ void MainComponent::rebuildChain (int fallbackIndex)
     if (auto* overview = dynamic_cast<ChainOverview*> (detailPanel.get()))
         overview->setTiles (tiles);
 
-    if (showingTuner || showingPractice)
+    if (showingTuner || showingPractice || showingJam)
     {
         chainStack.setSelected (-1);
         return;
@@ -511,9 +519,10 @@ void MainComponent::selectBlock (int index)
     {
         chainStack.setSelected (index);
         selectedBlock = panelBlock = chainStack.getTiles()[(size_t) index].enabled;
-        showingTuner = showingPractice = widePanel = false;
+        showingTuner = showingPractice = showingJam = widePanel = false;
         tunerButton.setToggleState (false, juce::dontSendNotification);
         practiceButton.setToggleState (false, juce::dontSendNotification);
+        jamButton.setToggleState (false, juce::dontSendNotification);
         detailPanel.reset();
         panelPedal.reset();
         showChainOverview();
@@ -527,9 +536,10 @@ void MainComponent::selectBlock (int index)
 
     chainStack.setSelected (index);
     selectedBlock = panelBlock = chainStack.getTiles()[(size_t) index].enabled;
-    showingTuner = showingPractice = false;
+    showingTuner = showingPractice = showingJam = false;
     tunerButton.setToggleState (false, juce::dontSendNotification);
     practiceButton.setToggleState (false, juce::dontSendNotification);
+    jamButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();   // closes the tuner first, if it was open
     panelPedal = tilePedals[(size_t) index];
     detailPanel = panelMakers[(size_t) index]();
@@ -639,9 +649,10 @@ void MainComponent::addFromTray (const juce::String& description, Pedalboard::Si
 
     // Open the new pedal, even if the tuner was showing.
     selectedBlock = &added->getEffect().enabled;
-    showingTuner = showingPractice = false;
+    showingTuner = showingPractice = showingJam = false;
     tunerButton.setToggleState (false, juce::dontSendNotification);
     practiceButton.setToggleState (false, juce::dontSendNotification);
+    jamButton.setToggleState (false, juce::dontSendNotification);
     rebuildChain();
 }
 
@@ -700,9 +711,10 @@ void MainComponent::showTuner()
     chainStack.setSelected (-1);
     selectedBlock = panelBlock = nullptr;
     showingTuner = true;
-    showingPractice = false;
+    showingPractice = showingJam = false;
     tunerButton.setToggleState (true, juce::dontSendNotification);
     practiceButton.setToggleState (false, juce::dontSendNotification);
+    jamButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();
     panelPedal.reset();
     detailPanel = std::make_unique<TunerPanel> (engine);
@@ -722,12 +734,36 @@ void MainComponent::showPractice()
     chainStack.setSelected (-1);
     selectedBlock = panelBlock = nullptr;
     showingPractice = true;
-    showingTuner = false;
+    showingTuner = showingJam = false;
     practiceButton.setToggleState (true, juce::dontSendNotification);
     tunerButton.setToggleState (false, juce::dontSendNotification);
+    jamButton.setToggleState (false, juce::dontSendNotification);
     detailPanel.reset();
     panelPedal.reset();
     detailPanel = std::make_unique<PracticePanel> (engine);
+    addAndMakeVisible (*detailPanel);
+    resized();
+}
+
+void MainComponent::showJam()
+{
+    // Pressing the button again goes back to the amp. The band keeps playing.
+    if (showingJam)
+    {
+        selectAmp();
+        return;
+    }
+
+    chainStack.setSelected (-1);
+    selectedBlock = panelBlock = nullptr;
+    showingJam = true;
+    showingTuner = showingPractice = false;
+    jamButton.setToggleState (true, juce::dontSendNotification);
+    tunerButton.setToggleState (false, juce::dontSendNotification);
+    practiceButton.setToggleState (false, juce::dontSendNotification);
+    detailPanel.reset();
+    panelPedal.reset();
+    detailPanel = std::make_unique<JamPanel> (engine);
     addAndMakeVisible (*detailPanel);
     resized();
 }
@@ -750,6 +786,12 @@ void MainComponent::timerCallback()
 
     if (practiceButton.getButtonText() != practiceText)
         practiceButton.setButtonText (practiceText);
+
+    const auto jamText = JamPanel::isBusy (engine) && ! showingJam ? juce::String::fromUTF8 ("Jam \xe2\x80\xa2")
+                                                                   : juce::String ("Jam");
+
+    if (jamButton.getButtonText() != jamText)
+        jamButton.setButtonText (jamText);
 
     // Keeps the brick lights, and the amp brick's voicing and cabinet, in step with the controls.
     {
