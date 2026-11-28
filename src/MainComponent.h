@@ -8,6 +8,7 @@
 #include "ui/ChainStack.h"
 #include "ui/CustomPedalPanel.h"
 #include "ui/PatchPanel.h"
+#include "ui/SongPanel.h"
 #include "ui/LevelMeter.h"
 #include "ui/NeighbourPedal.h"
 #include "ui/PedalTray.h"
@@ -73,6 +74,7 @@ private:
     juce::TextButton tunerButton { "Tuner" };
     juce::TextButton practiceButton { "Practice" };
     juce::TextButton jamButton { "Jam" };
+    juce::TextButton songsButton { "Songs" };
     juce::TextButton settingsButton { "Audio settings" };
 
     juce::Label inputHeading { {}, "IN" };
@@ -92,6 +94,7 @@ private:
     void showTuner();
     void showPractice();
     void showJam();
+    void showSongs();
     void showAddMenu (juce::Rectangle<int> screenArea);
     void addFromTray (const juce::String& description, Pedalboard::Side, int index);
     void addFromTray (const juce::String& description);
@@ -123,6 +126,8 @@ private:
     bool showingTuner = false;
     bool showingPractice = false;
     bool showingJam = false;
+    bool showingSongs = false;
+    SongSession songSession;   // the loaded song outlives its panel
     bool widePanel = false;   // a Custom or Patch pedal's editor, which needs the amp's space too
     std::unique_ptr<TonePanel> detailPanel;
 
