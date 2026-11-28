@@ -55,6 +55,12 @@ void Metronome::process (float* left, float* right, int numSamples) noexcept
 
     wasRunning = run;
 
+    if (restartRequested.exchange (false) && run)
+    {
+        samplesToNextBeat = 0.0;
+        beat = 0;
+    }
+
     if (! run)
         currentBeat.store (-1);
 
@@ -873,11 +879,20 @@ void PracticeTools::prepare (double sampleRate, int maxBlockSize)
     metronome.prepare (sampleRate);
     looper.prepare (sampleRate);
     recorder.prepare (sampleRate, maxBlockSize);
+    jamTrack.prepare (sampleRate);
 }
 
 void PracticeTools::process (const float* dry, float* left, float* right, int numSamples, bool muted) noexcept
 {
     looper.process (left, right, left, right, numSamples);
+
+    // The band comes after the looper, so loops hold only the guitar.
+    jamTrack.process (left, right, numSamples, metronome.getBpm());
+
+    // A clicking metronome lines up with the band when it starts.
+    if (jamTrack.takeStartedFlag())
+        metronome.restartBar();
+
     recorder.write (dry, left, right, numSamples);
 
     if (muted)
@@ -892,7 +907,7 @@ void PracticeTools::process (const float* dry, float* left, float* right, int nu
 
     metronome.process (left, right, numSamples);
 
-    // The loop and the click are added after the chain's limiter, so keep the
+    // The loop, the band and the click are added after the chain's limiter, so keep the
     // total inside full scale.
     juce::FloatVectorOperations::clip (left, left, -1.0f, 1.0f, numSamples);
 

@@ -7,7 +7,7 @@ on any of this; the UI only reads and writes `Parameter`s.
 ## Layout
 
 ```
-┌─────────────────────────── header (presets, undo, A/B, Practice, Tuner, Audio settings) ─┐
+┌────────────────────── header (presets, undo, A/B, Jam, Practice, Tuner, Audio settings) ─┐
 │ IN level          │                                        │                            │
 │ ┌ BEFORE AMP ─┐   │   open pedal as a stompbox,            │   Amp & Cab:               │
 │ │ brick       │   │   neighbours faded at its sides        │   head (voicing / capture) │
@@ -27,8 +27,8 @@ on any of this; the UI only reads and writes `Parameter`s.
   neighbours (`NeighbourPedal`). Picking Amp & Cab shows `ChainOverview`.
 - Bottom of the middle: `PedalTray`.
 - Right column (`AmpRig`, 450 px): always visible, except while a wide panel is
-  open (Tuner, Practice, Custom pedal, Patch pedal), which takes the middle and
-  right together and hides the tray for Tuner and Practice.
+  open (Tuner, Practice, Jam, Custom pedal, Patch pedal), which takes the
+  middle and right together and hides the tray for Tuner, Practice and Jam.
 - The header has one row. The warning line under it appears only when
   something is wrong (no device, no guitar input). Device details live in
   Audio settings.
@@ -45,6 +45,7 @@ on any of this; the UI only reads and writes `Parameter`s.
 | `ui/NeighbourPedal.h` | The faded pedals beside the open one. |
 | `ui/ChainOverview.h` | The whole chain, patched with cables, shown when Amp & Cab is picked. |
 | `ui/PedalTray.*` | Category tabs and mini pedals. Drags carry `pedal:<key>` or `mine:<name>`. |
+| `ui/JamPanel.*` | Jam tracks: style, key and progression, the clickable chord chart, and the band's mix. |
 | `ui/AmpRig.*` | Amp head and cabinet, including Match voicing (`getMatchingCabinet`). |
 
 ## Adding a pedal
