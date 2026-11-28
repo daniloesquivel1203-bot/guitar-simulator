@@ -317,7 +317,7 @@ Progression progressionFromString (const juce::String& text)
         s.chord.degree = wrap (fields[0].getIntValue());
         s.beats = fields[2].getIntValue();
 
-        const auto* info = std::find_if (qualities.begin(), qualities.end(),
+        const auto info = std::find_if (qualities.begin(), qualities.end(),
                                          [&] (const QualityInfo& q) { return fields[1] == q.code; });
 
         if (info == qualities.end() || (s.beats != 2 && s.beats != 4 && s.beats != 8 && s.beats != 16))
